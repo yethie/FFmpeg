@@ -235,6 +235,7 @@ External library support:
   --enable-libfontconfig   enable libfontconfig, useful for drawtext filter [no]
   --enable-libfreetype     enable libfreetype, needed for drawtext filter [no]
   --enable-libfribidi      enable libfribidi, improves drawtext filter [no]
+  --enable-libharfbuzz     enable libharfbuzz, needed for drawtext filter [no]
   --enable-libglslang      enable GLSL->SPIRV compilation via libglslang [no]
   --enable-libgme          enable Game Music Emu via libgme [no]
   --enable-libgsm          enable GSM de/encoding via libgsm [no]
@@ -1830,6 +1831,7 @@ EXTERNAL_LIBRARY_LIST="
     libfontconfig
     libfreetype
     libfribidi
+    libharfbuzz
     libglslang
     libgme
     libgsm
@@ -3645,7 +3647,7 @@ dilation_opencl_filter_deps="opencl"
 dnn_classify_filter_select="dnn"
 dnn_detect_filter_select="dnn"
 dnn_processing_filter_select="dnn"
-drawtext_filter_deps="libfreetype"
+drawtext_filter_deps="libfreetype libharfbuzz"
 drawtext_filter_suggest="libfontconfig libfribidi"
 elbg_filter_deps="avcodec"
 eq_filter_deps="gpl"
@@ -6553,6 +6555,7 @@ enabled libgme            && { check_pkg_config libgme libgme gme/gme.h gme_new_
 enabled libgsm            && { for gsm_hdr in "gsm.h" "gsm/gsm.h"; do
                                    check_lib libgsm "${gsm_hdr}" gsm_create -lgsm && break;
                                done || die "ERROR: libgsm not found"; }
+enabled libharfbuzz       && require_pkg_config libharfbuzz harfbuzz hb.h hb_buffer_create
 enabled libilbc           && require libilbc ilbc.h WebRtcIlbcfix_InitDecode -lilbc $pthreads_extralibs
 enabled libjxl            && require_pkg_config libjxl "libjxl >= 0.7.0" jxl/decode.h JxlDecoderVersion &&
                              require_pkg_config libjxl_threads "libjxl_threads >= 0.7.0" jxl/thread_parallel_runner.h JxlThreadParallelRunner

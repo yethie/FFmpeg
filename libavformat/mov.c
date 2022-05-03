@@ -5025,7 +5025,7 @@ static int mov_read_trun(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 // pts = frag_stream_info->sidx_pts;
                 dts = frag_stream_info->sidx_pts - sc->time_offset;
                 av_log(c->fc, AV_LOG_DEBUG, "found sidx time %"PRId64
-                        ", using it for pts\n", pts);
+                        ", using it for dts\n", frag_stream_info->sidx_pts);
             } else {
                 dts = sc->track_end - sc->time_offset;
                 av_log(c->fc, AV_LOG_DEBUG, "found track end time %"PRId64
@@ -8745,20 +8745,20 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
 
     /* Multiple stsd handling. */
     if (sc->stsc_data) {
-        /* Keep track of the stsc index for the given sample, then check
-        * if the stsd index is different from the last used one. */
+        if (sc->stsc_data[sc->stsc_index].id > 0 &&
+            sc->stsc_data[sc->stsc_index].id - 1 < sc->stsd_count &&
+            sc->stsc_data[sc->stsc_index].id - 1 != sc->last_stsd_index) {
+            ret = mov_change_extradata(sc, pkt);
+            if (ret < 0)
+                return ret;
+        }
+
+        /* Update the stsc index for the next sample */
         sc->stsc_sample++;
         if (mov_stsc_index_valid(sc->stsc_index, sc->stsc_count) &&
             mov_get_stsc_samples(sc, sc->stsc_index) == sc->stsc_sample) {
             sc->stsc_index++;
             sc->stsc_sample = 0;
-        /* Do not check indexes after a switch. */
-        } else if (sc->stsc_data[sc->stsc_index].id > 0 &&
-                   sc->stsc_data[sc->stsc_index].id - 1 < sc->stsd_count &&
-                   sc->stsc_data[sc->stsc_index].id - 1 != sc->last_stsd_index) {
-            ret = mov_change_extradata(sc, pkt);
-            if (ret < 0)
-                return ret;
         }
     }
 

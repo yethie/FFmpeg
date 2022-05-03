@@ -23,15 +23,11 @@
  * Compute a look-up table from map of colors.
  */
 
-#include "config_components.h"
-
 #include "libavutil/attributes.h"
-#include "libavutil/avstring.h"
+#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/opt.h"
-#include "libavutil/pixdesc.h"
 #include "avfilter.h"
-#include "formats.h"
 #include "internal.h"
 #include "framesync.h"
 #include "video.h"
@@ -129,8 +125,7 @@ static void gauss_solve_triangular(const double *A, const int *p, double *b, int
     }
 
     for(int k = n - 1; k > 0; k--) {
-        b[k] /= A[k + n * k];
-        double t = b[k];
+        double t = b[k] /= A[k + n * k];
         for (int i = 0; i < k; i++)
             b[i] -= A[k + n * i] * t;
     }
@@ -140,19 +135,14 @@ static void gauss_solve_triangular(const double *A, const int *p, double *b, int
 
 static int gauss_solve(double *A, double *b, int n)
 {
-    int *p = av_calloc(n, sizeof(*p));
+    int p[3] = { 0 };
 
-    if (!p)
-        return 1;
+    av_assert2(n <= FF_ARRAY_ELEMS(p));
 
-    if (!gauss_make_triangular(A, p, n)) {
-        av_freep(&p);
+    if (!gauss_make_triangular(A, p, n))
         return 1;
-    }
 
     gauss_solve_triangular(A, p, b, n);
-
-    av_freep(&p);
 
     return 0;
 }
@@ -537,6 +527,13 @@ static int activate(AVFilterContext *ctx)
     return ff_framesync_activate(&s->fs);
 }
 
+static av_cold void uninit(AVFilterContext *ctx)
+{
+    ColorMapContext *const s = ctx->priv;
+
+    ff_framesync_uninit(&s->fs);
+}
+
 static const AVFilterPad inputs[] = {
     {
         .name = "default",
@@ -574,4 +571,5 @@ const AVFilter ff_vf_colormap = {
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
                      AVFILTER_FLAG_SLICE_THREADS,
     .process_command = ff_filter_process_command,
+    .uninit        = uninit,
 };

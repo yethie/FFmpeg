@@ -39,6 +39,7 @@
 #include "libavutil/dict.h"
 #include "libavutil/time.h"
 #include "avformat.h"
+#include "demux.h"
 #include "internal.h"
 #include "avio_internal.h"
 #include "id3v2.h"
@@ -836,10 +837,10 @@ static int parse_playlist(HLSContext *c, const char *url,
             if (ret < 0)
                 goto fail;
             seq_no = strtoull(ptr, NULL, 10);
-            if (seq_no > INT64_MAX) {
+            if (seq_no > INT64_MAX/2) {
                 av_log(c->ctx, AV_LOG_DEBUG, "MEDIA-SEQUENCE higher than "
-                        "INT64_MAX, mask out the highest bit\n");
-                seq_no &= INT64_MAX;
+                        "INT64_MAX/2, mask out the highest bit\n");
+                seq_no &= INT64_MAX/2;
             }
             pls->start_seq_no = seq_no;
         } else if (av_strstart(line, "#EXT-X-PLAYLIST-TYPE:", &ptr)) {
@@ -2064,7 +2065,7 @@ static int hls_read_header(AVFormatContext *s)
             if (strstr(in_fmt->name, "mov")) {
                 char key[33];
                 ff_data_to_hex(key, pls->key, sizeof(pls->key), 0);
-                av_dict_set(&options, "decryption_key", key, AV_OPT_FLAG_DECODING_PARAM);
+                av_dict_set(&options, "decryption_key", key, 0);
             } else if (!c->crypto_ctx.aes_ctx) {
                 c->crypto_ctx.aes_ctx = av_aes_alloc();
                 if (!c->crypto_ctx.aes_ctx) {

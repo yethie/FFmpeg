@@ -568,10 +568,11 @@ static av_cold int svq1_encode_init(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
     }
 
-    if (ARCH_PPC)
-        ff_svq1enc_init_ppc(s);
-    if (ARCH_X86)
-        ff_svq1enc_init_x86(s);
+#if ARCH_PPC
+    ff_svq1enc_init_ppc(s);
+#elif ARCH_X86
+    ff_svq1enc_init_x86(s);
+#endif
 
     ff_h263_encode_init(&s->m); // mv_penalty
 
@@ -595,12 +596,12 @@ static int svq1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     }
 
     if (!s->current_picture->data[0]) {
-        if ((ret = ff_get_buffer(avctx, s->current_picture, 0)) < 0) {
+        if ((ret = ff_encode_alloc_frame(avctx, s->current_picture)) < 0) {
             return ret;
         }
     }
     if (!s->last_picture->data[0]) {
-        ret = ff_get_buffer(avctx, s->last_picture, 0);
+        ret = ff_encode_alloc_frame(avctx, s->last_picture);
         if (ret < 0)
             return ret;
     }

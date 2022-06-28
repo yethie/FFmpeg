@@ -45,6 +45,7 @@
 #include "libavutil/imgutils.h"
 
 #define ZIMG_ALIGNMENT 64
+#define MIN_TILESIZE 64
 #define MAX_THREADS 64
 
 static const char *const var_names[] = {
@@ -119,6 +120,10 @@ typedef struct ZScaleContext {
     void *tmp[MAX_THREADS]; //separate for each thread;
     int nb_threads;
     int jobs_ret[MAX_THREADS];
+    double in_slice_start[MAX_THREADS];
+    double in_slice_end[MAX_THREADS];
+    int out_slice_start[MAX_THREADS];
+    int out_slice_end[MAX_THREADS];
 
     zimg_image_format src_format, dst_format;
     zimg_image_format alpha_src_format, alpha_dst_format;
@@ -224,6 +229,31 @@ static int query_formats(AVFilterContext *ctx)
     if (ret < 0)
         return ret;
     return ff_formats_ref(ff_make_format_list(pixel_fmts), &ctx->outputs[0]->incfg.formats);
+}
+
+static void slice_params(ZScaleContext *s, int out_h, int in_h)
+{
+    int slice_size;
+
+    slice_size = (out_h + (s->nb_threads / 2)) / s->nb_threads;
+    if (slice_size % 2)
+        slice_size += 1;
+    s->out_slice_start[0] = 0;
+    s->out_slice_end[0] = FFMIN(out_h, slice_size);
+    for (int i = 1; i < s->nb_threads - 1; i++) {
+        s->out_slice_start[i] = s->out_slice_end[i-1];
+        s->out_slice_end[i] = s->out_slice_start[i] + slice_size;
+    }
+
+    if (s->nb_threads > 1) {
+        s->out_slice_start[s->nb_threads - 1] = s->out_slice_end[s->nb_threads - 2];
+        s->out_slice_end[s->nb_threads - 1] = out_h;
+    }
+
+    for (int i = 0; i < s->nb_threads; i++) {
+        s->in_slice_start[i] = s->out_slice_start[i] * in_h / (double)out_h;
+        s->in_slice_end[i]   = s->out_slice_end[i]   * in_h / (double)out_h;
+    }
 }
 
 static int config_props(AVFilterLink *outlink)
@@ -570,10 +600,10 @@ static int graphs_build(AVFrame *in, AVFrame *out, const AVPixFmtDescriptor *des
     zimg_image_format dst_format;
     zimg_image_format alpha_src_format;
     zimg_image_format alpha_dst_format;
-    const int in_slice_start  =  4 * ((((in->height  + 2) / 4) *  job_nr)   / n_jobs);
-    const int in_slice_end    = (job_nr == n_jobs-1) ? in->height  : 4 *  (((in->height  + 2) / 4) * (job_nr+1) / n_jobs);
-    const int out_slice_start =  4 * ((((out->height + 2) / 4) *  job_nr)   / n_jobs);
-    const int out_slice_end   = (job_nr == n_jobs-1) ? out->height : 4 *  (((out->height + 2) / 4) * (job_nr+1) / n_jobs);
+    const double in_slice_start  = s->in_slice_start[job_nr];
+    const double in_slice_end    = s->in_slice_end[job_nr];
+    const int out_slice_start = s->out_slice_start[job_nr];
+    const int out_slice_end   = s->out_slice_end[job_nr];
 
     src_format = s->src_format;
     dst_format = s->dst_format;
@@ -694,7 +724,7 @@ static int filter_slice(AVFilterContext *ctx, void *data, int job_nr, int n_jobs
     ZScaleContext *s = ctx->priv;
     zimg_image_buffer_const src_buf = { ZIMG_API_VERSION };
     zimg_image_buffer dst_buf = { ZIMG_API_VERSION };
-    const int out_slice_start = 4 * ((((td->out->height + 2) / 4) * job_nr) / n_jobs);
+    const int out_slice_start = s->out_slice_start[job_nr];
 
     /* create zimg filter graphs for each thread
      only if not created earlier or there is some change in frame parameters */
@@ -800,7 +830,7 @@ static int filter_frame(AVFilterLink *link, AVFrame *in)
         link->dst->inputs[0]->w      = in->width;
         link->dst->inputs[0]->h      = in->height;
 
-        s->nb_threads = av_clip(FFMIN(ff_filter_get_nb_threads(ctx), FFMIN(link->h, outlink->h) / 8), 1, MAX_THREADS);
+        s->nb_threads = av_clip(FFMIN(ff_filter_get_nb_threads(ctx), FFMIN(link->h, outlink->h) / MIN_TILESIZE), 1, MAX_THREADS);
         s->in_colorspace = in->colorspace;
         s->in_trc = in->color_trc;
         s->in_primaries = in->color_primaries;
@@ -809,6 +839,8 @@ static int filter_frame(AVFilterLink *link, AVFrame *in)
         s->out_trc = out->color_trc;
         s->out_primaries = out->color_primaries;
         s->out_range = out->color_range;
+
+        slice_params(s, out->height, in->height);
 
         zimg_image_format_default(&s->src_format, ZIMG_API_VERSION);
         zimg_image_format_default(&s->dst_format, ZIMG_API_VERSION);

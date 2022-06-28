@@ -557,6 +557,22 @@ Set input gain level. Allowed range is from 0 to 1. Default value is 1.
 
 @item gains
 Set output gain for each band. Default value is 1 for all bands.
+
+@item precision
+Set which precision to use when processing samples.
+
+@table @option
+@item auto
+Auto pick internal sample format depending on other filters.
+
+@item float
+Always use single-floating point precision sample format.
+
+@item double
+Always use double-floating point precision sample format.
+@end table
+
+Default value is @code{auto}.
 @end table
 
 @subsection Examples
@@ -1639,6 +1655,22 @@ Allowed range is from @var{1} to @var{32}. Default is @var{1}.
 Set IR stream which will be used for convolution, starting from @var{0}, should always be
 lower than supplied value by @code{nbirs} option. Default is @var{0}.
 This option can be changed at runtime via @ref{commands}.
+
+@item precision
+Set which precision to use when processing samples.
+
+@table @option
+@item auto
+Auto pick internal sample format depending on other filters.
+
+@item float
+Always use single-floating point precision sample format.
+
+@item double
+Always use double-floating point precision sample format.
+@end table
+
+Default value is auto.
 @end table
 
 @subsection Examples
@@ -1995,6 +2027,11 @@ in release time while 1 produces higher release times.
 @item level
 Auto level output signal. Default is enabled.
 This normalizes audio back to 0dB if enabled.
+
+@item latency
+Compensate the delay introduced by using the lookahead buffer set with attack
+parameter. Also flush the valid audio data in the lookahead buffer when the
+stream hits EOF.
 @end table
 
 Depending on picked setting it is recommended to upsample input 2x or 4x times
@@ -2050,9 +2087,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -3124,15 +3163,18 @@ The filter accepts the following options:
 @table @option
 @item dry
 Set dry gain, how much of original signal is kept. Allowed range is from 0 to 1.
-Default value is 0.7.
+Default value is 1.0.
 
 @item wet
 Set wet gain, how much of filtered signal is kept. Allowed range is from 0 to 1.
-Default value is 0.7.
+Default value is 1.0.
+
+@item boost
+Set max boost factor. Allowed range is from 1 to 12. Default value is 2.
 
 @item decay
 Set delay line decay gain value. Allowed range is from 0 to 1.
-Default value is 0.7.
+Default value is 0.0.
 
 @item feedback
 Set delay line feedback gain value. Allowed range is from 0 to 1.
@@ -3149,6 +3191,9 @@ Default value is 0.5.
 @item delay
 Set delay. Allowed range is from 1 to 100.
 Default value is 20.
+
+@item channels
+Set the channels to process. Default value is all available.
 @end table
 
 @subsection Commands
@@ -3479,9 +3524,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -3498,6 +3545,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Commands
@@ -3567,9 +3621,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -3586,6 +3642,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Commands
@@ -3665,9 +3728,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -3684,6 +3749,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Commands
@@ -3748,9 +3820,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -3767,6 +3841,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @section bs2b
@@ -4172,6 +4253,13 @@ Set input gain. Default is 0.9.
 
 @item level_out
 Set output gain. Default is 1.
+
+@item block_size
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Commands
@@ -4541,9 +4629,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -4560,6 +4650,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Examples
@@ -5043,9 +5140,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -5062,6 +5161,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Commands
@@ -5394,9 +5500,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -5413,6 +5521,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Examples
@@ -6575,6 +6690,97 @@ Set window overlap. If set to 1, the recommended overlap for selected
 window function will be picked. Default is @code{0.5}.
 @end table
 
+@section tiltshelf
+
+Boost or cut the lower frequencies and cut or boost higher frequencies
+of the audio using a two-pole shelving filter with a response similar to
+that of a standard hi-fi's tone-controls.
+This is also known as shelving equalisation (EQ).
+
+The filter accepts the following options:
+
+@table @option
+@item gain, g
+Give the gain at 0 Hz. Its useful range is about -20
+(for a large cut) to +20 (for a large boost).
+Beware of clipping when using a positive gain.
+
+@item frequency, f
+Set the filter's central frequency and so can be used
+to extend or reduce the frequency range to be boosted or cut.
+The default value is @code{3000} Hz.
+
+@item width_type, t
+Set method to specify band-width of filter.
+@table @option
+@item h
+Hz
+@item q
+Q-Factor
+@item o
+octave
+@item s
+slope
+@item k
+kHz
+@end table
+
+@item width, w
+Determine how steep is the filter's shelf transition.
+
+@item poles, p
+Set number of poles. Default is 2.
+
+@item mix, m
+How much to use filtered signal in output. Default is 1.
+Range is between 0 and 1.
+
+@item channels, c
+Specify which channels to filter, by default all available are filtered.
+
+@item normalize, n
+Normalize biquad coefficients, by default is disabled.
+Enabling it will normalize magnitude response at DC to 0dB.
+
+@item transform, a
+Set transform type of IIR filter.
+@table @option
+@item di
+@item dii
+@item tdi
+@item tdii
+@item latt
+@item svf
+@item zdf
+@end table
+
+@item precision, r
+Set precison of filtering.
+@table @option
+@item auto
+Pick automatic sample format depending on surround filters.
+@item s16
+Always use signed 16-bit.
+@item s32
+Always use signed 32-bit.
+@item f32
+Always use float 32-bit.
+@item f64
+Always use float 64-bit.
+@end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
+@end table
+
+@subsection Commands
+
+This filter supports some options as @ref{commands}.
+
 @section treble, highshelf
 
 Boost or cut treble (upper) frequencies of the audio using a two-pole
@@ -6631,9 +6837,11 @@ Set transform type of IIR filter.
 @table @option
 @item di
 @item dii
+@item tdi
 @item tdii
 @item latt
 @item svf
+@item zdf
 @end table
 
 @item precision, r
@@ -6650,6 +6858,13 @@ Always use float 32-bit.
 @item f64
 Always use float 64-bit.
 @end table
+
+@item block_size, b
+Set block size used for reverse IIR processing. If this value is set to high enough
+value (higher than impulse response length truncated when reaches near zero values) filtering
+will become linear phase otherwise if not big enough it will just produce nasty artifacts.
+
+Note that filter delay will be exactly this many samples when set to non-zero value.
 @end table
 
 @subsection Commands
@@ -6710,6 +6925,26 @@ Range is 0.1 - 20000.0. Default value is 5.0 Hz.
 @item d
 Depth of modulation as a percentage. Range is 0.0 - 1.0.
 Default value is 0.5.
+@end table
+
+@section virtualbass
+
+Apply audio Virtual Bass filter.
+
+This filter accepts stereo input and produce stereo with LFE (2.1) channels output.
+The newly produced LFE channel have enhanced virtual bass originally obtained from both stereo channels.
+This filter outputs front left and front right channels unchanged as available in stereo input.
+
+The filter accepts the following options:
+
+@table @option
+@item cutoff
+Set the virtual bass cutoff frequency. Default value is 250 Hz.
+Allowed range is from 100 to 500 Hz.
+
+@item strength
+Set the virtual bass strength. Allowed range is from 0.5 to 3.
+Default value is 3.
 @end table
 
 @section volume
@@ -8006,6 +8241,35 @@ tblend=all_mode=grainextract
 
 @subsection Commands
 This filter supports same @ref{commands} as options.
+
+@anchor{blockdetect}
+@section blockdetect
+
+Determines blockiness of frames without altering the input frames.
+
+Based on Remco Muijs and Ihor Kirenko: "A no-reference blocking artifact measure for adaptive video processing." 2005 13th European signal processing conference.
+
+The filter accepts the following options:
+
+@table @option
+@item period_min
+@item period_max
+Set minimum and maximum values for determining pixel grids (periods).
+Default values are [3,24].
+
+@item planes
+Set planes to filter. Default is first only.
+@end table
+
+@subsection Examples
+
+@itemize
+@item
+Determine blockiness for the first plane and search for periods within [8,32]:
+@example
+blockdetect=period_min=8:period_max=32:planes=1
+@end example
+@end itemize
 
 @anchor{blurdetect}
 @section blurdetect
@@ -12112,8 +12376,8 @@ Specify the search radius for best edge matching. Default value is 2.
 Allowed range is from 0 to 15.
 
 @item ecost
-Specify the edge cost for edge matching. Default value is 0.03125.
-Allowed range is from 0 to 1.
+Specify the edge cost for edge matching. Default value is 1.0.
+Allowed range is from 0 to 9.
 
 @item mcost
 Specify the middle cost for edge matching. Default value is 0.5.
@@ -12346,6 +12610,9 @@ Set size of block in pixels, Default is 32, can be 8 to 256.
 
 @item overlap
 Set block overlap. Default is 0.5. Allowed range is from 0.2 to 0.8.
+
+@item method
+Set denoising method. Default is @code{wiener}, can also be @code{hard}.
 
 @item prev
 Set number of previous frames to use for denoising. By default is set to 0.
@@ -16634,6 +16901,29 @@ with the reference file @file{ref.mpg}.
 @example
 ffmpeg -i main.mpg -i ref.mpg -lavfi msad -f null -
 @end example
+
+@section multiply
+Multiply first video stream pixels values with second video stream pixels values.
+
+The filter accepts the following options:
+
+@table @option
+@item scale
+Set the scale applied to second video stream. By default is @code{1}.
+Allowed range is from @code{0} to @code{9}.
+
+@item offset
+Set the offset applied to second video stream. By default is @code{0.5}.
+Allowed range is from @code{-1} to @code{1}.
+
+@item planes
+Specify planes from input video stream that will be processed.
+By default all planes are processed.
+@end table
+
+@subsection Commands
+
+This filter supports same @ref{commands} as options.
 
 @section negate
 

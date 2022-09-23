@@ -328,54 +328,6 @@ static int mov_write_amr_tag(AVIOContext *pb, MOVTrack *track)
     return 0x11;
 }
 
-static int mov_write_ac3_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *track)
-{
-    GetBitContext gbc;
-    PutBitContext pbc;
-    uint8_t buf[3];
-    int fscod, bsid, bsmod, acmod, lfeon, frmsizecod;
-
-    if (track->vos_len < 7) {
-        av_log(s, AV_LOG_ERROR,
-               "Cannot write moov atom before AC3 packets."
-               " Set the delay_moov flag to fix this.\n");
-        return AVERROR(EINVAL);
-    }
-
-    avio_wb32(pb, 11);
-    ffio_wfourcc(pb, "dac3");
-
-    init_get_bits(&gbc, track->vos_data + 4, (track->vos_len - 4) * 8);
-    fscod      = get_bits(&gbc, 2);
-    frmsizecod = get_bits(&gbc, 6);
-    bsid       = get_bits(&gbc, 5);
-    bsmod      = get_bits(&gbc, 3);
-    acmod      = get_bits(&gbc, 3);
-    if (acmod == 2) {
-        skip_bits(&gbc, 2); // dsurmod
-    } else {
-        if ((acmod & 1) && acmod != 1)
-            skip_bits(&gbc, 2); // cmixlev
-        if (acmod & 4)
-            skip_bits(&gbc, 2); // surmixlev
-    }
-    lfeon = get_bits1(&gbc);
-
-    init_put_bits(&pbc, buf, sizeof(buf));
-    put_bits(&pbc, 2, fscod);
-    put_bits(&pbc, 5, bsid);
-    put_bits(&pbc, 3, bsmod);
-    put_bits(&pbc, 3, acmod);
-    put_bits(&pbc, 1, lfeon);
-    put_bits(&pbc, 5, frmsizecod >> 1); // bit_rate_code
-    put_bits(&pbc, 5, 0); // reserved
-
-    flush_put_bits(&pbc);
-    avio_write(pb, buf, sizeof(buf));
-
-    return 11;
-}
-
 struct eac3_info {
     AVPacket *pkt;
     uint8_t ec3_done;
@@ -384,6 +336,7 @@ struct eac3_info {
     /* Layout of the EC3SpecificBox */
     /* maximum bitrate */
     uint16_t data_rate;
+    int8_t   ac3_bit_rate_code;
     /* number of independent substreams */
     uint8_t  num_ind_sub;
     struct {
@@ -408,21 +361,73 @@ struct eac3_info {
     } substream[1]; /* TODO: support 8 independent substreams */
 };
 
-#if CONFIG_AC3_PARSER
+static int mov_write_ac3_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *track)
+{
+    struct eac3_info *info = track->eac3_priv;
+    PutBitContext pbc;
+    uint8_t buf[3];
+
+    if (!info || !info->ec3_done) {
+        av_log(s, AV_LOG_ERROR,
+               "Cannot write moov atom before AC3 packets."
+               " Set the delay_moov flag to fix this.\n");
+        return AVERROR(EINVAL);
+    }
+
+    if (info->substream[0].bsid > 8) {
+        av_log(s, AV_LOG_ERROR,
+               "RealAudio AC-3/DolbyNet with bsid %d is not defined by the "
+               "ISOBMFF specification in ETSI TS 102 366!\n",
+               info->substream[0].bsid);
+        return AVERROR(EINVAL);
+    }
+
+    if (info->ac3_bit_rate_code < 0) {
+        av_log(s, AV_LOG_ERROR,
+               "No valid AC3 bit rate code for data rate of %d!\n",
+               info->data_rate);
+        return AVERROR(EINVAL);
+    }
+
+    avio_wb32(pb, 11);
+    ffio_wfourcc(pb, "dac3");
+
+    init_put_bits(&pbc, buf, sizeof(buf));
+    put_bits(&pbc, 2, info->substream[0].fscod);
+    put_bits(&pbc, 5, info->substream[0].bsid);
+    put_bits(&pbc, 3, info->substream[0].bsmod);
+    put_bits(&pbc, 3, info->substream[0].acmod);
+    put_bits(&pbc, 1, info->substream[0].lfeon);
+    put_bits(&pbc, 5, info->ac3_bit_rate_code); // bit_rate_code
+    put_bits(&pbc, 5, 0); // reserved
+
+    flush_put_bits(&pbc);
+    avio_write(pb, buf, sizeof(buf));
+
+    return 11;
+}
+
 static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
 {
     AC3HeaderInfo *hdr = NULL;
     struct eac3_info *info;
     int num_blocks, ret;
 
-    if (!track->eac3_priv && !(track->eac3_priv = av_mallocz(sizeof(*info))))
-        return AVERROR(ENOMEM);
+    if (!track->eac3_priv) {
+        if (!(track->eac3_priv = av_mallocz(sizeof(*info))))
+            return AVERROR(ENOMEM);
+
+        ((struct eac3_info *)track->eac3_priv)->ac3_bit_rate_code = -1;
+    }
     info = track->eac3_priv;
 
     if (!info->pkt && !(info->pkt = av_packet_alloc()))
         return AVERROR(ENOMEM);
 
-    if (avpriv_ac3_parse_header(&hdr, pkt->data, pkt->size) < 0) {
+    if ((ret = avpriv_ac3_parse_header(&hdr, pkt->data, pkt->size)) < 0) {
+        if (ret == AVERROR(ENOMEM))
+            goto end;
+
         /* drop the packets until we see a good one */
         if (!track->entry) {
             av_log(mov->fc, AV_LOG_WARNING, "Dropping invalid packet from start of the stream\n");
@@ -433,6 +438,8 @@ static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
     }
 
     info->data_rate = FFMAX(info->data_rate, hdr->bit_rate / 1000);
+    info->ac3_bit_rate_code = FFMAX(info->ac3_bit_rate_code,
+                                    hdr->ac3_bit_rate_code);
     num_blocks = hdr->num_blocks;
 
     if (!info->ec3_done) {
@@ -444,7 +451,8 @@ static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
 
         /* this should always be the case, given that our AC-3 parser
          * concatenates dependent frames to their independent parent */
-        if (hdr->frame_type == EAC3_FRAME_TYPE_INDEPENDENT) {
+        if (hdr->frame_type == EAC3_FRAME_TYPE_INDEPENDENT ||
+            hdr->frame_type == EAC3_FRAME_TYPE_AC3_CONVERT) {
             /* substream ids must be incremental */
             if (hdr->substreamid > info->num_ind_sub + 1) {
                 ret = AVERROR(EINVAL);
@@ -475,6 +483,14 @@ static int handle_eac3(MOVMuxContext *mov, AVPacket *pkt, MOVTrack *track)
         info->substream[hdr->substreamid].bsmod = hdr->bitstream_mode;
         info->substream[hdr->substreamid].acmod = hdr->channel_mode;
         info->substream[hdr->substreamid].lfeon = hdr->lfe_on;
+
+        if (track->par->codec_id == AV_CODEC_ID_AC3) {
+            // with AC-3 we only require the information of a single packet,
+            // so we can finish as soon as the basic values of the bit stream
+            // have been set to the track's informational structure.
+            info->ec3_done = 1;
+            goto concatenate;
+        }
 
         /* Parse dependent substream(s), if any */
         if (pkt->size != hdr->frame_size) {
@@ -549,7 +565,6 @@ end:
 
     return ret;
 }
-#endif
 
 static int mov_write_eac3_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *track)
 {
@@ -2164,6 +2179,16 @@ static int mov_write_ccst_tag(AVIOContext *pb)
     return update_size(pb, pos);
 }
 
+static int mov_write_aux_tag(AVIOContext *pb, const char *aux_type)
+{
+    int64_t pos = avio_tell(pb);
+    avio_wb32(pb, 0); /* size */
+    ffio_wfourcc(pb, aux_type);
+    avio_wb32(pb, 0); /* Version & flags */
+    avio_write(pb, "urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0", 44);
+    return update_size(pb, pos);
+}
+
 static int mov_write_video_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContext *mov, MOVTrack *track)
 {
     int ret = AVERROR_BUG;
@@ -2348,8 +2373,11 @@ static int mov_write_video_tag(AVFormatContext *s, AVIOContext *pb, MOVMuxContex
     if (avid)
         avio_wb32(pb, 0);
 
-    if (track->mode == MODE_AVIF)
+    if (track->mode == MODE_AVIF) {
         mov_write_ccst_tag(pb);
+        if (s->nb_streams > 0 && track == &mov->tracks[1])
+            mov_write_aux_tag(pb, "auxi");
+    }
 
     return update_size(pb, pos);
 }
@@ -3029,16 +3057,6 @@ static int mov_write_pixi_tag(AVIOContext *pb, MOVMuxContext *mov, AVFormatConte
     return update_size(pb, pos);
 }
 
-static int mov_write_auxC_tag(AVIOContext *pb)
-{
-    int64_t pos = avio_tell(pb);
-    avio_wb32(pb, 0); /* size */
-    ffio_wfourcc(pb, "auxC");
-    avio_wb32(pb, 0); /* Version & flags */
-    avio_write(pb, "urn:mpeg:mpegB:cicp:systems:auxiliary:alpha\0", 44);
-    return update_size(pb, pos);
-}
-
 static int mov_write_ipco_tag(AVIOContext *pb, MOVMuxContext *mov, AVFormatContext *s)
 {
     int64_t pos = avio_tell(pb);
@@ -3051,7 +3069,7 @@ static int mov_write_ipco_tag(AVIOContext *pb, MOVMuxContext *mov, AVFormatConte
         if (!i)
             mov_write_colr_tag(pb, &mov->tracks[0], 0);
         else
-            mov_write_auxC_tag(pb);
+            mov_write_aux_tag(pb, "auxC");
     }
     return update_size(pb, pos);
 }
@@ -6015,8 +6033,7 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
     if ((par->codec_id == AV_CODEC_ID_DNXHD ||
          par->codec_id == AV_CODEC_ID_H264 ||
          par->codec_id == AV_CODEC_ID_HEVC ||
-         par->codec_id == AV_CODEC_ID_TRUEHD ||
-         par->codec_id == AV_CODEC_ID_AC3) && !trk->vos_len &&
+         par->codec_id == AV_CODEC_ID_TRUEHD) && !trk->vos_len &&
          !TAG_IS_AVCI(trk->tag)) {
         /* copy frame to create needed atoms */
         trk->vos_len  = size;
@@ -6093,15 +6110,14 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
             }
         }
 
-#if CONFIG_AC3_PARSER
-    } else if (par->codec_id == AV_CODEC_ID_EAC3) {
+    } else if (par->codec_id == AV_CODEC_ID_AC3 ||
+               par->codec_id == AV_CODEC_ID_EAC3) {
         size = handle_eac3(mov, pkt, trk);
         if (size < 0)
             return size;
         else if (!size)
             goto end;
         avio_write(pb, pkt->data, size);
-#endif
     } else if (par->codec_id == AV_CODEC_ID_EIA_608) {
         size = 8;
 
@@ -6500,6 +6516,9 @@ static int mov_write_packet(AVFormatContext *s, AVPacket *pkt)
             } else if (trk->par->codec_id == AV_CODEC_ID_RAWVIDEO &&
                        (trk->par->format == AV_PIX_FMT_GRAY8 ||
                        trk->par->format == AV_PIX_FMT_MONOBLACK)) {
+                ret = av_packet_make_writable(pkt);
+                if (ret < 0)
+                    goto fail;
                 for (i = 0; i < pkt->size; i++)
                     pkt->data[i] = ~pkt->data[i];
             }
@@ -7144,7 +7163,7 @@ static int mov_init(AVFormatContext *s)
                     av_log(s, AV_LOG_ERROR, "%s only supported in MP4.\n", avcodec_get_name(track->par->codec_id));
                     return AVERROR(EINVAL);
                 }
-                if (track->par->codec_id != AV_CODEC_ID_OPUS &&
+                if (track->par->codec_id == AV_CODEC_ID_TRUEHD &&
                     s->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
                     av_log(s, AV_LOG_ERROR,
                            "%s in MP4 support is experimental, add "

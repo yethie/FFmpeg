@@ -25,8 +25,8 @@
 
 #include "libavutil/avassert.h"
 #include "codec_internal.h"
+#include "decode.h"
 #include "error_resilience.h"
-#include "internal.h"
 #include "mpeg_er.h"
 #include "mpegvideodec.h"
 #include "msmpeg4dec.h"
@@ -846,7 +846,7 @@ static av_cold int mss2_decode_init(AVCodecContext *avctx)
 
 const FFCodec ff_mss2_decoder = {
     .p.name         = "mss2",
-    .p.long_name    = NULL_IF_CONFIG_SMALL("MS Windows Media Video V9 Screen"),
+    CODEC_LONG_NAME("MS Windows Media Video V9 Screen"),
     .p.type         = AVMEDIA_TYPE_VIDEO,
     .p.id           = AV_CODEC_ID_MSS2,
     .priv_data_size = sizeof(MSS2Context),
@@ -854,5 +854,4 @@ const FFCodec ff_mss2_decoder = {
     .close          = mss2_decode_end,
     FF_CODEC_DECODE_CB(mss2_decode_frame),
     .p.capabilities = AV_CODEC_CAP_DR1,
-    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE,
 };

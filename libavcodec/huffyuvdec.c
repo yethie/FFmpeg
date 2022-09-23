@@ -1264,7 +1264,7 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *p,
 
 const FFCodec ff_huffyuv_decoder = {
     .p.name           = "huffyuv",
-    .p.long_name      = NULL_IF_CONFIG_SMALL("Huffyuv / HuffYUV"),
+    CODEC_LONG_NAME("Huffyuv / HuffYUV"),
     .p.type           = AVMEDIA_TYPE_VIDEO,
     .p.id             = AV_CODEC_ID_HUFFYUV,
     .priv_data_size   = sizeof(HYuvContext),
@@ -1273,13 +1273,13 @@ const FFCodec ff_huffyuv_decoder = {
     FF_CODEC_DECODE_CB(decode_frame),
     .p.capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_DRAW_HORIZ_BAND |
                         AV_CODEC_CAP_FRAME_THREADS,
-    .caps_internal    = FF_CODEC_CAP_INIT_THREADSAFE | FF_CODEC_CAP_INIT_CLEANUP,
+    .caps_internal    = FF_CODEC_CAP_INIT_CLEANUP,
 };
 
 #if CONFIG_FFVHUFF_DECODER
 const FFCodec ff_ffvhuff_decoder = {
     .p.name           = "ffvhuff",
-    .p.long_name      = NULL_IF_CONFIG_SMALL("Huffyuv FFmpeg variant"),
+    CODEC_LONG_NAME("Huffyuv FFmpeg variant"),
     .p.type           = AVMEDIA_TYPE_VIDEO,
     .p.id             = AV_CODEC_ID_FFVHUFF,
     .priv_data_size   = sizeof(HYuvContext),
@@ -1288,14 +1288,14 @@ const FFCodec ff_ffvhuff_decoder = {
     FF_CODEC_DECODE_CB(decode_frame),
     .p.capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_DRAW_HORIZ_BAND |
                         AV_CODEC_CAP_FRAME_THREADS,
-    .caps_internal    = FF_CODEC_CAP_INIT_THREADSAFE | FF_CODEC_CAP_INIT_CLEANUP,
+    .caps_internal    = FF_CODEC_CAP_INIT_CLEANUP,
 };
 #endif /* CONFIG_FFVHUFF_DECODER */
 
 #if CONFIG_HYMT_DECODER
 const FFCodec ff_hymt_decoder = {
     .p.name           = "hymt",
-    .p.long_name      = NULL_IF_CONFIG_SMALL("HuffYUV MT"),
+    CODEC_LONG_NAME("HuffYUV MT"),
     .p.type           = AVMEDIA_TYPE_VIDEO,
     .p.id             = AV_CODEC_ID_HYMT,
     .priv_data_size   = sizeof(HYuvContext),
@@ -1304,6 +1304,6 @@ const FFCodec ff_hymt_decoder = {
     FF_CODEC_DECODE_CB(decode_frame),
     .p.capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_DRAW_HORIZ_BAND |
                         AV_CODEC_CAP_FRAME_THREADS,
-    .caps_internal    = FF_CODEC_CAP_INIT_THREADSAFE | FF_CODEC_CAP_INIT_CLEANUP,
+    .caps_internal    = FF_CODEC_CAP_INIT_CLEANUP,
 };
 #endif /* CONFIG_HYMT_DECODER */

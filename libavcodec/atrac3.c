@@ -34,7 +34,6 @@
 
 #include <math.h>
 #include <stddef.h>
-#include <stdio.h>
 
 #include "libavutil/attributes.h"
 #include "libavutil/float_dsp.h"
@@ -45,9 +44,9 @@
 #include "avcodec.h"
 #include "bytestream.h"
 #include "codec_internal.h"
+#include "decode.h"
 #include "fft.h"
 #include "get_bits.h"
-#include "internal.h"
 
 #include "atrac.h"
 #include "atrac3data.h"
@@ -1017,7 +1016,7 @@ static av_cold int atrac3_decode_init(AVCodecContext *avctx)
 
 const FFCodec ff_atrac3_decoder = {
     .p.name           = "atrac3",
-    .p.long_name      = NULL_IF_CONFIG_SMALL("ATRAC3 (Adaptive TRansform Acoustic Coding 3)"),
+    CODEC_LONG_NAME("ATRAC3 (Adaptive TRansform Acoustic Coding 3)"),
     .p.type           = AVMEDIA_TYPE_AUDIO,
     .p.id             = AV_CODEC_ID_ATRAC3,
     .priv_data_size   = sizeof(ATRAC3Context),
@@ -1027,12 +1026,12 @@ const FFCodec ff_atrac3_decoder = {
     .p.capabilities   = AV_CODEC_CAP_SUBFRAMES | AV_CODEC_CAP_DR1,
     .p.sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_FLTP,
                                                         AV_SAMPLE_FMT_NONE },
-    .caps_internal    = FF_CODEC_CAP_INIT_THREADSAFE | FF_CODEC_CAP_INIT_CLEANUP,
+    .caps_internal    = FF_CODEC_CAP_INIT_CLEANUP,
 };
 
 const FFCodec ff_atrac3al_decoder = {
     .p.name           = "atrac3al",
-    .p.long_name      = NULL_IF_CONFIG_SMALL("ATRAC3 AL (Adaptive TRansform Acoustic Coding 3 Advanced Lossless)"),
+    CODEC_LONG_NAME("ATRAC3 AL (Adaptive TRansform Acoustic Coding 3 Advanced Lossless)"),
     .p.type           = AVMEDIA_TYPE_AUDIO,
     .p.id             = AV_CODEC_ID_ATRAC3AL,
     .priv_data_size   = sizeof(ATRAC3Context),
@@ -1042,5 +1041,5 @@ const FFCodec ff_atrac3al_decoder = {
     .p.capabilities   = AV_CODEC_CAP_SUBFRAMES | AV_CODEC_CAP_DR1,
     .p.sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_FLTP,
                                                         AV_SAMPLE_FMT_NONE },
-    .caps_internal    = FF_CODEC_CAP_INIT_THREADSAFE | FF_CODEC_CAP_INIT_CLEANUP,
+    .caps_internal    = FF_CODEC_CAP_INIT_CLEANUP,
 };

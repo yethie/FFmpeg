@@ -44,9 +44,7 @@
 
 #include "avcodec.h"
 #include "codec_internal.h"
-#include "get_bits.h"
-#include "internal.h"
-#include "mathops.h"
+#include "decode.h"
 #include "opus.h"
 #include "opustab.h"
 #include "opus_celt.h"
@@ -706,7 +704,7 @@ static const AVClass opus_class = {
 
 const FFCodec ff_opus_decoder = {
     .p.name          = "opus",
-    .p.long_name     = NULL_IF_CONFIG_SMALL("Opus"),
+    CODEC_LONG_NAME("Opus"),
     .p.priv_class    = &opus_class,
     .p.type          = AVMEDIA_TYPE_AUDIO,
     .p.id            = AV_CODEC_ID_OPUS,
@@ -716,5 +714,5 @@ const FFCodec ff_opus_decoder = {
     FF_CODEC_DECODE_CB(opus_decode_packet),
     .flush           = opus_decode_flush,
     .p.capabilities  = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_DELAY | AV_CODEC_CAP_CHANNEL_CONF,
-    .caps_internal   = FF_CODEC_CAP_INIT_THREADSAFE | FF_CODEC_CAP_INIT_CLEANUP,
+    .caps_internal   = FF_CODEC_CAP_INIT_CLEANUP,
 };

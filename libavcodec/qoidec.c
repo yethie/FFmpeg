@@ -18,13 +18,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <stdlib.h>
-
-#include "libavutil/imgutils.h"
 #include "avcodec.h"
-#include "internal.h"
 #include "bytestream.h"
 #include "codec_internal.h"
+#include "decode.h"
 #include "thread.h"
 #include "qoi.h"
 
@@ -69,10 +66,9 @@ static int qoi_decode_frame(AVCodecContext *avctx, AVFrame *p,
 
     dst = p->data[0];
     len = width * height * channels;
-    for (int n = 0, off_x = 0, off_y = 0; n < len; n += channels, off_x++) {
+    for (int n = 0, off_x = 0; n < len; n += channels, off_x++) {
         if (off_x >= width) {
             off_x = 0;
-            off_y++;
             dst += p->linesize[0];
         }
         if (run > 0) {
@@ -118,7 +114,7 @@ static int qoi_decode_frame(AVCodecContext *avctx, AVFrame *p,
 
 const FFCodec ff_qoi_decoder = {
     .p.name         = "qoi",
-    .p.long_name    = NULL_IF_CONFIG_SMALL("QOI (Quite OK Image format) image"),
+    CODEC_LONG_NAME("QOI (Quite OK Image format) image"),
     .p.type         = AVMEDIA_TYPE_VIDEO,
     .p.id           = AV_CODEC_ID_QOI,
     .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS,

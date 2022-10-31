@@ -22,8 +22,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "config_components.h"
-
 #include "libavutil/thread.h"
 
 #include "avcodec.h"
@@ -38,7 +36,6 @@
 #include "h263dec.h"
 #include "mpeg4videodec.h"
 #include "msmpeg4data.h"
-#include "wmv2dec.h"
 
 #define DC_VLC_BITS 9
 #define V2_INTRA_CBPC_VLC_BITS 3
@@ -391,8 +388,7 @@ av_cold int ff_msmpeg4_decode_init(AVCodecContext *avctx)
         s->decode_mb= msmpeg4v34_decode_mb;
         break;
     case 5:
-        if (CONFIG_WMV2_DECODER)
-            s->decode_mb= ff_wmv2_decode_mb;
+        break;
     case 6:
         //FIXME + TODO VC1 decode mb
         break;
@@ -687,9 +683,9 @@ int ff_msmpeg4_decode_block(MpegEncContext * s, int16_t * block,
         }
         if (s->ac_pred) {
             if (dc_pred_dir == 0)
-                scan_table = s->intra_v_scantable.permutated; /* left */
+                scan_table = s->permutated_intra_v_scantable; /* left */
             else
-                scan_table = s->intra_h_scantable.permutated; /* top */
+                scan_table = s->permutated_intra_h_scantable; /* top */
         } else {
             scan_table = s->intra_scantable.permutated;
         }

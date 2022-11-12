@@ -2479,7 +2479,6 @@ CONFIG_EXTRA="
     huffyuvencdsp
     idctdsp
     iirfilter
-    mdct15
     inflate_wrapper
     intrax8
     iso_media
@@ -2751,28 +2750,27 @@ inflate_wrapper_deps="zlib"
 intrax8_select="blockdsp wmv2dsp"
 iso_media_select="mpeg4audio"
 mdct_select="fft"
-mdct15_select="fft"
 me_cmp_select="idctdsp"
 mpeg_er_select="error_resilience"
 mpegaudio_select="mpegaudiodsp mpegaudioheader"
 mpegaudiodsp_select="dct"
 mpegvideo_select="blockdsp hpeldsp idctdsp videodsp"
 mpegvideodec_select="h264chroma mpegvideo mpeg_er"
-mpegvideoenc_select="aandcttables fdctdsp me_cmp mpegvideo pixblockdsp qpeldsp"
+mpegvideoenc_select="aandcttables fdctdsp me_cmp mpegvideo pixblockdsp"
 msmpeg4dec_select="h263_decoder"
 msmpeg4enc_select="h263_encoder"
 vc1dsp_select="h264chroma qpeldsp startcode"
 rdft_select="fft"
 
 # decoders / encoders
-aac_decoder_select="adts_header mdct15 mdct mpeg4audio sinewin"
-aac_fixed_decoder_select="adts_header mdct mpeg4audio"
-aac_encoder_select="audio_frame_queue iirfilter lpc mdct sinewin"
+aac_decoder_select="adts_header mpeg4audio sinewin"
+aac_fixed_decoder_select="adts_header mpeg4audio"
+aac_encoder_select="audio_frame_queue iirfilter lpc sinewin"
 aac_latm_decoder_select="aac_decoder aac_latm_parser"
-ac3_decoder_select="ac3_parser ac3dsp bswapdsp fmtconvert mdct"
-ac3_fixed_decoder_select="ac3_parser ac3dsp bswapdsp mdct"
-ac3_encoder_select="ac3dsp audiodsp mdct me_cmp"
-ac3_fixed_encoder_select="ac3dsp audiodsp mdct me_cmp"
+ac3_decoder_select="ac3_parser ac3dsp bswapdsp fmtconvert"
+ac3_fixed_decoder_select="ac3_parser ac3dsp bswapdsp"
+ac3_encoder_select="ac3dsp audiodsp me_cmp"
+ac3_fixed_encoder_select="ac3dsp audiodsp me_cmp"
 acelp_kelvin_decoder_select="audiodsp"
 adpcm_g722_decoder_select="g722dsp"
 adpcm_g722_encoder_select="g722dsp"
@@ -2793,12 +2791,7 @@ asv1_decoder_select="blockdsp bswapdsp idctdsp"
 asv1_encoder_select="aandcttables bswapdsp fdctdsp pixblockdsp"
 asv2_decoder_select="blockdsp bswapdsp idctdsp"
 asv2_encoder_select="aandcttables bswapdsp fdctdsp pixblockdsp"
-atrac1_decoder_select="mdct sinewin"
-atrac3_decoder_select="mdct"
-atrac3al_decoder_select="mdct"
-atrac3p_decoder_select="mdct sinewin"
-atrac3pal_decoder_select="mdct sinewin"
-atrac9_decoder_select="mdct"
+atrac1_decoder_select="sinewin"
 av1_decoder_select="av1_frame_split_bsf cbs_av1"
 bink_decoder_select="blockdsp hpeldsp"
 binkaudio_dct_decoder_select="dct wma_freqs"
@@ -2807,16 +2800,13 @@ cavs_decoder_select="blockdsp golomb h264chroma idctdsp qpeldsp videodsp"
 clearvideo_decoder_select="idctdsp"
 cllc_decoder_select="bswapdsp"
 comfortnoise_encoder_select="lpc"
-cook_decoder_select="audiodsp mdct sinewin"
+cook_decoder_select="audiodsp sinewin"
 cri_decoder_select="mjpeg_decoder"
 cscd_decoder_suggest="zlib"
-dca_decoder_select="mdct"
-dca_encoder_select="mdct"
 dds_decoder_select="texturedsp"
 dirac_decoder_select="dirac_parse dwt golomb videodsp mpegvideoenc"
 dnxhd_decoder_select="blockdsp idctdsp"
 dnxhd_encoder_select="blockdsp fdctdsp idctdsp mpegvideoenc pixblockdsp videodsp"
-dolby_e_decoder_select="mdct"
 dvvideo_decoder_select="dvprofile idctdsp"
 dvvideo_encoder_select="dvprofile fdctdsp me_cmp pixblockdsp"
 dxa_decoder_deps="zlib"
@@ -2862,7 +2852,7 @@ huffyuv_decoder_select="bswapdsp huffyuvdsp llviddsp"
 huffyuv_encoder_select="bswapdsp huffman huffyuvencdsp llvidencdsp"
 hymt_decoder_select="huffyuv_decoder"
 iac_decoder_select="imc_decoder"
-imc_decoder_select="bswapdsp fft mdct sinewin"
+imc_decoder_select="bswapdsp sinewin"
 imm4_decoder_select="bswapdsp idctdsp"
 imm5_decoder_select="h264_decoder hevc_decoder"
 indeo3_decoder_select="hpeldsp"
@@ -2878,7 +2868,7 @@ lscr_decoder_select="inflate_wrapper"
 magicyuv_decoder_select="llviddsp"
 magicyuv_encoder_select="llvidencdsp"
 mdec_decoder_select="blockdsp bswapdsp idctdsp"
-metasound_decoder_select="lsp mdct sinewin"
+metasound_decoder_select="lsp sinewin"
 mimic_decoder_select="blockdsp bswapdsp hpeldsp idctdsp"
 mjpeg_decoder_select="blockdsp hpeldsp exif idctdsp jpegtables"
 mjpeg_encoder_select="jpegtables mpegvideoenc"
@@ -2905,7 +2895,7 @@ mpeg1video_encoder_select="mpegvideoenc"
 mpeg2video_decoder_select="mpegvideodec"
 mpeg2video_encoder_select="mpegvideoenc"
 mpeg4_decoder_select="h263_decoder mpeg4video_parser"
-mpeg4_encoder_select="h263_encoder"
+mpeg4_encoder_select="h263_encoder qpeldsp"
 msa1_decoder_select="mss34dsp"
 mscc_decoder_select="inflate_wrapper"
 msmpeg4v1_decoder_select="msmpeg4dec"
@@ -2919,11 +2909,10 @@ mv30_decoder_select="aandcttables blockdsp"
 mvha_decoder_select="inflate_wrapper llviddsp"
 mwsc_decoder_select="inflate_wrapper"
 mxpeg_decoder_select="mjpeg_decoder"
-nellymoser_decoder_select="mdct sinewin"
-nellymoser_encoder_select="audio_frame_queue mdct sinewin"
+nellymoser_decoder_select="sinewin"
+nellymoser_encoder_select="audio_frame_queue sinewin"
 notchlc_decoder_select="lzf"
 nuv_decoder_select="idctdsp"
-on2avc_decoder_select="mdct"
 opus_decoder_deps="swresample"
 opus_encoder_select="audio_frame_queue"
 png_decoder_select="inflate_wrapper"
@@ -2933,7 +2922,7 @@ prores_encoder_select="fdctdsp"
 prores_aw_encoder_select="fdctdsp"
 prores_ks_encoder_select="fdctdsp"
 qcelp_decoder_select="lsp"
-qdm2_decoder_select="rdft mpegaudiodsp"
+qdm2_decoder_select="mpegaudiodsp"
 ra_144_decoder_select="audiodsp"
 ra_144_encoder_select="audio_frame_queue lpc audiodsp"
 ralf_decoder_select="golomb"
@@ -2976,17 +2965,16 @@ truehd_encoder_select="lpc audio_frame_queue"
 truemotion2_decoder_select="bswapdsp"
 truespeech_decoder_select="bswapdsp"
 tscc_decoder_select="inflate_wrapper"
-twinvq_decoder_select="mdct lsp sinewin"
+twinvq_decoder_select="lsp sinewin"
 txd_decoder_select="texturedsp"
 utvideo_decoder_select="bswapdsp llviddsp"
 utvideo_encoder_select="bswapdsp huffman llvidencdsp"
 vble_decoder_select="llviddsp"
 vbn_decoder_select="texturedsp"
 vbn_encoder_select="texturedspenc"
-vc1_decoder_select="blockdsp h264qpel intrax8 mpegvideodec msmpeg4dec vc1dsp"
+vc1_decoder_select="blockdsp h264qpel intrax8 mpegvideodec qpeldsp vc1dsp"
 vc1image_decoder_select="vc1_decoder"
-vorbis_decoder_select="mdct"
-vorbis_encoder_select="audio_frame_queue mdct"
+vorbis_encoder_select="audio_frame_queue"
 vp3_decoder_select="hpeldsp vp3dsp videodsp"
 vp4_decoder_select="vp3_decoder"
 vp5_decoder_select="h264chroma hpeldsp videodsp vp3dsp vp56dsp"
@@ -2999,11 +2987,11 @@ vp9_decoder_select="videodsp vp9_parser vp9_superframe_split_bsf"
 wcmv_decoder_select="inflate_wrapper"
 webp_decoder_select="vp8_decoder exif"
 wmalossless_decoder_select="llauddsp"
-wmapro_decoder_select="mdct sinewin wma_freqs"
-wmav1_decoder_select="mdct sinewin wma_freqs"
-wmav1_encoder_select="mdct sinewin wma_freqs"
-wmav2_decoder_select="mdct sinewin wma_freqs"
-wmav2_encoder_select="mdct sinewin wma_freqs"
+wmapro_decoder_select="sinewin wma_freqs"
+wmav1_decoder_select="sinewin wma_freqs"
+wmav1_encoder_select="sinewin wma_freqs"
+wmav2_decoder_select="sinewin wma_freqs"
+wmav2_encoder_select="sinewin wma_freqs"
 wmavoice_decoder_select="lsp rdft dct sinewin"
 wmv1_decoder_select="msmpeg4dec"
 wmv1_encoder_select="msmpeg4enc"
@@ -3186,6 +3174,8 @@ nvenc_deps_any="libdl LoadLibrary"
 aac_mf_encoder_deps="mediafoundation"
 ac3_mf_encoder_deps="mediafoundation"
 av1_cuvid_decoder_deps="cuvid CUVIDAV1PICPARAMS"
+av1_nvenc_encoder_deps="nvenc NV_ENC_PIC_PARAMS_AV1"
+av1_nvenc_encoder_select="atsc_a53"
 h263_v4l2m2m_decoder_deps="v4l2_m2m h263_v4l2_m2m"
 h263_v4l2m2m_encoder_deps="v4l2_m2m h263_v4l2_m2m"
 h264_amf_encoder_deps="amf"
@@ -3411,6 +3401,7 @@ libx264_encoder_select="atsc_a53"
 libx264rgb_encoder_deps="libx264"
 libx264rgb_encoder_select="libx264_encoder"
 libx265_encoder_deps="libx265"
+libx265_encoder_select="atsc_a53"
 libxavs_encoder_deps="libxavs"
 libxavs2_encoder_deps="libxavs2"
 libxvid_encoder_deps="libxvid"
@@ -6468,10 +6459,10 @@ fi
 
 if ! disabled ffnvcodec; then
     ffnv_hdr_list="ffnvcodec/nvEncodeAPI.h ffnvcodec/dynlink_cuda.h ffnvcodec/dynlink_cuviddec.h ffnvcodec/dynlink_nvcuvid.h"
-    check_pkg_config ffnvcodec "ffnvcodec >= 9.1.23.1" "$ffnv_hdr_list" "" || \
-      check_pkg_config ffnvcodec "ffnvcodec >= 9.0.18.3 ffnvcodec < 9.1" "$ffnv_hdr_list" "" || \
-      check_pkg_config ffnvcodec "ffnvcodec >= 8.2.15.10 ffnvcodec < 8.3" "$ffnv_hdr_list" "" || \
-      check_pkg_config ffnvcodec "ffnvcodec >= 8.1.24.11 ffnvcodec < 8.2" "$ffnv_hdr_list" ""
+    check_pkg_config ffnvcodec "ffnvcodec >= 12.0.16.0" "$ffnv_hdr_list" "" || \
+      check_pkg_config ffnvcodec "ffnvcodec >= 11.1.5.2 ffnvcodec < 12.0" "$ffnv_hdr_list" "" || \
+      check_pkg_config ffnvcodec "ffnvcodec >= 11.0.10.2 ffnvcodec < 11.1" "$ffnv_hdr_list" "" || \
+      check_pkg_config ffnvcodec "ffnvcodec >= 8.1.24.14 ffnvcodec < 8.2" "$ffnv_hdr_list" ""
 fi
 
 if enabled_all libglslang libshaderc; then
@@ -6561,7 +6552,8 @@ enabled avisynth          && { require_headers "avisynth/avisynth_c.h avisynth/a
                                { test_cpp_condition avisynth/avs/version.h "AVS_MAJOR_VER >= 3 && AVS_MINOR_VER >= 7 && AVS_BUGFIX_VER >= 1 || AVS_MAJOR_VER >= 3 && AVS_MINOR_VER > 7 || AVS_MAJOR_VER > 3" ||
                                  die "ERROR: AviSynth+ header version must be >= 3.7.1"; } }
 enabled cuda_nvcc         && { check_nvcc cuda_nvcc || die "ERROR: failed checking for nvcc."; }
-enabled chromaprint       && require chromaprint chromaprint.h chromaprint_get_version -lchromaprint
+enabled chromaprint       && { check_pkg_config chromaprint libchromaprint "chromaprint.h" chromaprint_get_version ||
+                               require chromaprint chromaprint.h chromaprint_get_version -lchromaprint; }
 enabled decklink          && { require_headers DeckLinkAPI.h &&
                                { test_cpp_condition DeckLinkAPIVersion.h "BLACKMAGIC_DECKLINK_API_VERSION >= 0x0a0b0000" || die "ERROR: Decklink API version must be >= 10.11"; } }
 enabled frei0r            && require_headers "frei0r.h"
@@ -6760,7 +6752,8 @@ enabled mmal              && { check_lib mmal interface/mmal/mmal.h mmal_port_co
                                  check_lib mmal interface/mmal/mmal.h mmal_port_connect -lmmal_core -lmmal_util -lmmal_vc_client -lbcm_host; } ||
                                die "ERROR: mmal not found" &&
                                check_func_headers interface/mmal/mmal.h "MMAL_PARAMETER_VIDEO_MAX_NUM_CALLBACKS"; }
-enabled openal            && { { for al_extralibs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32"; do
+enabled openal            && { check_pkg_config openal "openal >= 1.1" "AL/al.h" alGetError ||
+                               { for al_extralibs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32"; do
                                check_lib openal 'AL/al.h' alGetError "${al_extralibs}" && break; done } ||
                                die "ERROR: openal not found"; } &&
                              { test_cpp_condition "AL/al.h" "defined(AL_VERSION_1_1)" ||
@@ -7050,6 +7043,10 @@ NV_ENCODE_API_FUNCTION_LIST flist;
 void f(void) { struct { const GUID guid; } s[] = { { NV_ENC_PRESET_HQ_GUID } }; }
 int main(void) { return 0; }
 EOF
+
+if enabled nvenc; then
+    check_type "ffnvcodec/nvEncodeAPI.h" "NV_ENC_PIC_PARAMS_AV1"
+fi
 
 if enabled_any nvdec cuvid; then
     check_type "ffnvcodec/dynlink_cuda.h ffnvcodec/dynlink_cuviddec.h" "CUVIDAV1PICPARAMS"

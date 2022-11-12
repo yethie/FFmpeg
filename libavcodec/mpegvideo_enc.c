@@ -807,7 +807,6 @@ av_cold int ff_mpv_encode_init(AVCodecContext *avctx)
     ff_me_cmp_init(&s->mecc, avctx);
     ff_mpegvideoencdsp_init(&s->mpvencdsp, avctx);
     ff_pixblockdsp_init(&s->pdsp, avctx);
-    ff_qpeldsp_init(&s->qdsp);
 
     if (!(avctx->stats_out = av_mallocz(256))               ||
         !FF_ALLOCZ_TYPED_ARRAY(s->q_intra_matrix,          32) ||
@@ -3736,9 +3735,9 @@ static int encode_picture(MpegEncContext *s, int picture_number)
             s->       intra_matrix[j] = av_clip_uint8((  luma_matrix[i] * s->qscale) >> 3);
         }
         s->y_dc_scale_table=
-        s->c_dc_scale_table= ff_mpeg2_dc_scale_table[s->intra_dc_precision];
+        s->c_dc_scale_table = ff_mpeg12_dc_scale_table[s->intra_dc_precision];
         s->chroma_intra_matrix[0] =
-        s->intra_matrix[0] = ff_mpeg2_dc_scale_table[s->intra_dc_precision][8];
+        s->intra_matrix[0]  = ff_mpeg12_dc_scale_table[s->intra_dc_precision][8];
         ff_convert_matrix(s, s->q_intra_matrix, s->q_intra_matrix16,
                        s->intra_matrix, s->intra_quant_bias, 8, 8, 1);
         ff_convert_matrix(s, s->q_chroma_intra_matrix, s->q_chroma_intra_matrix16,

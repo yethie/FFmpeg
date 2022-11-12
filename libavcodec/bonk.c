@@ -132,7 +132,6 @@ static av_cold int bonk_init(AVCodecContext *avctx)
 static unsigned read_uint_max(BonkContext *s, uint32_t max)
 {
     unsigned value = 0;
-    int i, bits;
 
     if (max == 0)
         return 0;
@@ -140,15 +139,9 @@ static unsigned read_uint_max(BonkContext *s, uint32_t max)
     if (max >> 31)
         return 32;
 
-    bits = 32 - ff_clz(max);
-
-    for (i = 0; i < bits - 1; i++)
+    for (unsigned i = 1; i <= max - value; i+=i)
         if (get_bits1(&s->gb))
-            value += 1 << i;
-
-    if ((value | (1 << (bits - 1))) <= max)
-        if (get_bits1(&s->gb))
-            value += 1 << (bits - 1);
+            value += i;
 
     return value;
 }
@@ -176,8 +169,7 @@ static int intlist_read(BonkContext *s, int *buf, int entries, int base_2_part)
             return AVERROR_INVALIDDATA;
 
         if (!get_bits1(&s->gb)) {
-            if (steplet < 0)
-                break;
+            av_assert0(steplet >= 0);
 
             if (steplet > 0) {
                 bits[x  ].bit   = dominant;
@@ -187,6 +179,8 @@ static int intlist_read(BonkContext *s, int *buf, int entries, int base_2_part)
             if (!dominant)
                 n_zeros += steplet;
 
+            if (step > INT32_MAX*8LL/9 + 1)
+                return AVERROR_INVALIDDATA;
             step += step / 8;
         } else if (steplet > 0) {
             int actual_run = read_uint_max(s, steplet - 1);
@@ -273,7 +267,7 @@ static int predictor_calc_error(int *k, int *state, int order, int error)
         *state_ptr = &(state[order-2]);
 
     for (i = order-2; i >= 0; i--, k_ptr--, state_ptr--) {
-        int k_value = *k_ptr, state_value = *state_ptr;
+        unsigned k_value = *k_ptr, state_value = *state_ptr;
 
         x -= shift_down(k_value * state_value, LATTICE_SHIFT);
         state_ptr[1] = state_value + shift_down(k_value * x, LATTICE_SHIFT);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Francesco Carusi
+ * Copyright (c) 2023 Francesco Carusi
  * Copyright (c) 2011 Stefano Sabatini
  * Copyright (c) 2010 S.N. Hemanth Meenakshisundaram
  * Copyright (c) 2003 Gustavo Sverzut Barbieri <gsbarbieri@yahoo.com.br>
@@ -40,6 +40,8 @@
  *   (e.g. boxborderw=top|right|bottom|left)
  * - The "change" command can be used to modify a subset of the filter parameters.
  *   Using the "change" command is much faster than using the "reinit" command.
+ * - The following new variables can be used in the x and y expressions:
+ *   font_a, font_d, top_a, bottom_d
  */
 
 /**
@@ -73,6 +75,7 @@
 #include "libavutil/opt.h"
 #include "libavutil/random_seed.h"
 #include "libavutil/parseutils.h"
+#include "libavutil/time.h"
 #include "libavutil/timecode.h"
 #include "libavutil/time_internal.h"
 #include "libavutil/tree.h"
@@ -105,14 +108,14 @@ static const char *const var_names[] = {
     "line_h", "lh",           ///< line height, same as max_glyph_h
     "main_h", "h", "H",       ///< height of the input video
     "main_w", "w", "W",       ///< width  of the input video
-    "max_glyph_a", "ascent",  ///< max glyph ascent
-    "max_glyph_d", "descent", ///< min glyph descent
+    "max_glyph_a", "ascent",  ///< max glyph ascender
+    "max_glyph_d", "descent", ///< min glyph descender
     "max_glyph_h",            ///< max glyph height
     "max_glyph_w",            ///< max glyph width
     "font_a",                 ///< font-defined ascent
     "font_d",                 ///< font-defined descent
-    "top_a",                  ///< max glyph ascent of the top line
-    "bottom_d",               ///< max glyph descent of the bottom line
+    "top_a",                  ///< max glyph ascender of the top line
+    "bottom_d",               ///< max glyph descender of the bottom line
     "n",                      ///< number of frame
     "sar",
     "t",                      ///< timestamp expressed in seconds
@@ -213,8 +216,9 @@ typedef struct TextLine {
     int offset_right64;             ///< maximum offset between the origin and
                                     ///  the rightmost pixel of the last glyph
     int width64;                    ///< width of the line
-    HarfbuzzData hb_data;
-    GlyphInfo* glyphs;
+    HarfbuzzData hb_data;           ///< libharfbuzz data of this text line
+    GlyphInfo* glyphs;              ///< array of glyphs in this text line
+    int cluster_offset;             ///< the offset at which this line begins
 } TextLine;
 
 /** A glyph as loaded and rendered using libfreetype */
@@ -283,14 +287,13 @@ typedef struct DrawTextContext {
     short int draw_box;             ///< draw box around text - true or false
     char* boxborderw;               ///< box border width (padding)
                                     ///  allowed formats: "all", "vert|oriz", "top|right|bottom|left"
-    int bb_top;
-    int bb_right;
-    int bb_bottom;
-    int bb_left;
-    int box_width;
-    int box_height;
-//    int use_kerning;                ///< font kerning is used - true/false
-//    int tabsize;                    ///< tab size
+    int bb_top;                     ///< the size of the top box border
+    int bb_right;                   ///< the size of the right box border
+    int bb_bottom;                  ///< the size of the bottom box border
+    int bb_left;                    ///< the size of the left box border
+    int box_width;                  ///< the width of box
+    int box_height;                 ///< the height of box
+    int tabsize;                    ///< tab size
     int fix_bounds;                 ///< do we let it go out of frame bounds - t/f
 
     FFDrawContext dc;
@@ -316,7 +319,7 @@ typedef struct DrawTextContext {
     AVRational  tc_rate;            ///< frame rate for timecode
     AVTimecode  tc;                 ///< timecode context
     int tc24hmax;                   ///< 1 if timecode is wrapped to 24 hours, 0 otherwise
-    int reload;                     ///< reload text file for each frame
+    int reload;                     ///< reload text file at specified frame interval
     int start_number;               ///< starting frame number for n/frame_num var
     char *text_source_string;       ///< the string to specify text data source
     enum AVFrameSideDataType text_source;
@@ -325,13 +328,16 @@ typedef struct DrawTextContext {
 #endif
     AVDictionary *metadata;
 
-    int boxw;
-    int boxh;
-    uint8_t *text_align;
-    int y_align;
+    int boxw;                       ///< the value of the boxw parameter
+    int boxh;                       ///< the value of the boxh parameter
+    uint8_t *text_align;            ///< the horizontal and vertical text alignment
+    int y_align;                    ///< the value of the y_align parameter
 
-    TextLine *lines;
-    int line_count;
+    TextLine *lines;                ///< computed information about text lines
+    int line_count;                 ///< the number of text lines
+    uint32_t *tab_clusters;         ///< the position of tab characters in the text
+    int tab_count;                  ///< the number of tab characters
+    int blank_advance64;            ///< the size of the space character
 } DrawTextContext;
 
 #define OFFSET(x) offsetof(DrawTextContext, x)
@@ -358,7 +364,7 @@ static const AVOption drawtext_options[]= {
     {"shadowx",        "set shadow x offset",   OFFSET(shadowx),            AV_OPT_TYPE_INT,    {.i64=0},     INT_MIN, INT_MAX, FLAGS},
     {"shadowy",        "set shadow y offset",   OFFSET(shadowy),            AV_OPT_TYPE_INT,    {.i64=0},     INT_MIN, INT_MAX, FLAGS},
     {"borderw",        "set border width",      OFFSET(borderw),            AV_OPT_TYPE_INT,    {.i64=0},     INT_MIN, INT_MAX, FLAGS},
-    // {"tabsize",     "set tab size",          OFFSET(tabsize),            AV_OPT_TYPE_INT,    {.i64=4},     0, INT_MAX, FLAGS},
+    {"tabsize",        "set tab size",          OFFSET(tabsize),            AV_OPT_TYPE_INT,    {.i64=4},     0, INT_MAX, FLAGS},
     {"basetime",       "set base time",         OFFSET(basetime),           AV_OPT_TYPE_INT64,  {.i64=AV_NOPTS_VALUE}, INT64_MIN, INT64_MAX, FLAGS},
 #if CONFIG_LIBFONTCONFIG
     { "font",        "Font name",            OFFSET(font),               AV_OPT_TYPE_STRING, { .str = "Sans" },           .flags = FLAGS },
@@ -378,7 +384,7 @@ static const AVOption drawtext_options[]= {
     {"timecode_rate",   "set rate (timecode only)",         OFFSET(tc_rate),       AV_OPT_TYPE_RATIONAL, {.dbl=0},    0, INT_MAX, FLAGS},
     {"r",               "set rate (timecode only)",         OFFSET(tc_rate),       AV_OPT_TYPE_RATIONAL, {.dbl=0},    0, INT_MAX, FLAGS},
     {"rate",            "set rate (timecode only)",         OFFSET(tc_rate),       AV_OPT_TYPE_RATIONAL, {.dbl=0},    0, INT_MAX, FLAGS},
-    {"reload",          "reload text file for each frame",  OFFSET(reload),        AV_OPT_TYPE_BOOL,     {.i64=0},    0, 1, FLAGS},
+    {"reload",          "reload text file at specified frame interval", OFFSET(reload), AV_OPT_TYPE_INT, {.i64=0},    0, INT_MAX, FLAGS},
     {"alpha",           "apply alpha while rendering",      OFFSET(a_expr),        AV_OPT_TYPE_STRING,   {.str = "1"}, .flags = FLAGS},
     {"fix_bounds",      "check and fix text coords to avoid clipping", OFFSET(fix_bounds), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {"start_number",    "start frame number for n/frame_num variable", OFFSET(start_number), AV_OPT_TYPE_INT, {.i64=0}, 0, INT_MAX, FLAGS},
@@ -429,7 +435,7 @@ static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code,
      int8_t shift_x64, int8_t shift_y64);
 
 // Shapes a line of text using libharfbuzz
-static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, char* text, int textLen);
+static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text, int textLen);
 
 // Performs text measurements
 static int measure_text(AVFilterContext *ctx, TextMetrics *metrics);
@@ -749,6 +755,7 @@ static int shape_text(AVFilterContext *ctx)
     s->text = tmp;
     len = fribidi_unicode_to_charset(FRIBIDI_CHAR_SET_UTF8,
                                      unicodestr, len, s->text);
+
     ret = 0;
 
 out:
@@ -770,6 +777,7 @@ static enum AVFrameSideDataType text_source_string_parse(const char *text_source
     }
 }
 
+// Convert a string formatted as "n1|n2|...|nN" into an integer array
 static int string_to_array(const char* source, int* result, int result_size) {
     int counter = 0, size = strlen(source) + 1;
     char *saveptr, *curval, *dup = av_malloc(size);
@@ -780,10 +788,22 @@ static int string_to_array(const char* source, int* result, int result_size) {
                 break;
             }
             result[counter++] = atoi(curval);
-        } while(curval = av_strtok(NULL, "|", &saveptr));
+        } while((curval = av_strtok(NULL, "|", &saveptr)) && counter < result_size);
     }
     av_free(dup);
     return counter;
+}
+
+static int validate_text_align(char* text_align) {
+    int err = 0;
+    if(strlen(text_align) != 2
+        || strchr("LCRTMB", text_align[0]) == NULL || strchr("LCRTMB", text_align[1]) == NULL
+        || (strchr("TMB", text_align[0]) != NULL && strchr("LCR", text_align[1]) == NULL)
+        || (strchr("LCR", text_align[0]) != NULL && strchr("TMB", text_align[1]) == NULL)) {
+        err = AVERROR(EINVAL);
+    }
+
+    return err;
 }
 
 static av_cold int init(AVFilterContext *ctx)
@@ -802,36 +822,7 @@ static av_cold int init(AVFilterContext *ctx)
         return AVERROR(EINVAL);
     }
 
-    if(s->text) {
-        // Unescape control sequences '\n', '\r', '\t'
-        char* tmp = av_malloc(strlen(s->text) + 1);
-        int sourceIdx = 0, destIdx = 0;
-        char src, dest;
-        while((src = s->text[sourceIdx++]) != 0) {
-            dest = src;
-            if(src == '\\') {
-                src = s->text[sourceIdx++];
-                switch(src) {
-                    case 'n':
-                        dest = '\n';
-                        break;
-                    case 'r':
-                        dest = '\r';
-                        break;
-                    case 't':
-                        dest = '\t';
-                        break;
-                    default:
-                        dest = src;
-                        break;
-                }
-            }
-            tmp[destIdx++] = dest;
-        }
-        tmp[destIdx] = 0;
-        av_free(s->text);
-        s->text = tmp;
-    }
+//    init_text(ctx);
 
     if (s->textfile) {
         if (s->text) {
@@ -882,15 +873,12 @@ static av_cold int init(AVFilterContext *ctx)
         return AVERROR(EINVAL);
     }
 
-    if(strlen(s->text_align) != 2
-        || strchr("LCRTMB", s->text_align[0]) == NULL || strchr("LCRTMB", s->text_align[1]) == NULL
-        || (strchr("TMB", s->text_align[0]) != NULL && strchr("LCR", s->text_align[1]) == NULL)
-        || (strchr("LCR", s->text_align[0]) != NULL && strchr("TMB", s->text_align[1]) == NULL)) {
+    if((err = validate_text_align(s->text_align))) {
         av_log(ctx, AV_LOG_ERROR,
                "The value provided for parameter 'text_align' is not valid,\n");
         av_log(ctx, AV_LOG_ERROR,
                "please specify a two characters string containing only one letter for horizontal alignment ('LCR') and one for vertical alignment ('TMB')\n");
-        return AVERROR(EINVAL);
+        return err;
     }
 
 #if CONFIG_LIBFRIBIDI
@@ -924,14 +912,6 @@ static av_cold int init(AVFilterContext *ctx)
 
     /* load the fallback glyph with code 0 */
     load_glyph(ctx, NULL, 0, 0, 0);
-
-    /* set the tabsize in pixels */
-    // where is s->tabsize used??
-    // if ((err = load_glyph(ctx, &glyph, ' ', 0, 0)) < 0) {
-    //     av_log(ctx, AV_LOG_ERROR, "Could not set tabsize.\n");
-    //     return err;
-    // }
-    // s->tabsize *= glyph->advance;
 
     if (s->exp_mode == EXP_STRFTIME &&
         (strchr(s->text, '%') || strchr(s->text, '\\')))
@@ -977,9 +957,6 @@ static av_cold void uninit(AVFilterContext *ctx)
 
     s->x_pexpr = s->y_pexpr = s->a_pexpr = s->fontsize_pexpr = NULL;
 
-//    av_freep(&s->positions);
-//    s->nb_positions = 0;
-
     av_tree_enumerate(s->glyphs, NULL, NULL, glyph_enu_free);
     av_tree_destroy(s->glyphs);
     s->glyphs = NULL;
@@ -1005,15 +982,15 @@ static int config_input(AVFilterLink *inlink)
     ff_draw_color(&s->dc, &s->bordercolor, s->bordercolor.rgba);
     ff_draw_color(&s->dc, &s->boxcolor,    s->boxcolor.rgba);
 
-    s->var_values[VAR_w]     = s->var_values[VAR_W]     = s->var_values[VAR_MAIN_W] = inlink->w;
-    s->var_values[VAR_h]     = s->var_values[VAR_H]     = s->var_values[VAR_MAIN_H] = inlink->h;
-    s->var_values[VAR_SAR]   = inlink->sample_aspect_ratio.num ? av_q2d(inlink->sample_aspect_ratio) : 1;
-    s->var_values[VAR_DAR]   = (double)inlink->w / inlink->h * s->var_values[VAR_SAR];
-    s->var_values[VAR_HSUB]  = 1 << s->dc.hsub_max;
-    s->var_values[VAR_VSUB]  = 1 << s->dc.vsub_max;
-    s->var_values[VAR_X]     = NAN;
-    s->var_values[VAR_Y]     = NAN;
-    s->var_values[VAR_T]     = NAN;
+    s->var_values[VAR_w]    = s->var_values[VAR_W] = s->var_values[VAR_MAIN_W] = inlink->w;
+    s->var_values[VAR_h]    = s->var_values[VAR_H] = s->var_values[VAR_MAIN_H] = inlink->h;
+    s->var_values[VAR_SAR]  = inlink->sample_aspect_ratio.num ? av_q2d(inlink->sample_aspect_ratio) : 1;
+    s->var_values[VAR_DAR]  = (double)inlink->w / inlink->h * s->var_values[VAR_SAR];
+    s->var_values[VAR_HSUB] = 1 << s->dc.hsub_max;
+    s->var_values[VAR_VSUB] = 1 << s->dc.vsub_max;
+    s->var_values[VAR_X]    = NAN;
+    s->var_values[VAR_Y]    = NAN;
+    s->var_values[VAR_T]    = NAN;
 
     av_lfg_init(&s->prng, av_get_random_seed());
 
@@ -1092,6 +1069,7 @@ static int command(AVFilterContext *ctx, const char *cmd, const char *arg, char 
                 break;
             } else if(err >= 0) {
                 if(strcmp(key, "text") == 0) {
+//                    init_text(ctx);
                     FFSWAP(uint8_t*, new->text, old->text);
                 } else if(strcmp(key, "x") == 0) {
                     FFSWAP(char*, new->x_expr, old->x_expr);
@@ -1126,7 +1104,12 @@ static int command(AVFilterContext *ctx, const char *cmd, const char *arg, char 
                 } else if(strcmp(key, "line_spacing") == 0) {
                     old->line_spacing = new->line_spacing;
                 } else if(strcmp(key, "text_align") == 0) {
-                    FFSWAP(uint8_t*, new->text_align, old->text_align);
+                    if(!validate_text_align(value)) {
+                        FFSWAP(uint8_t*, new->text_align, old->text_align);
+                    } else {
+                        av_log(ctx, AV_LOG_ERROR,
+                            "Ignoring invalid parameter value '%s' for 'text_align'\n", value);
+                    }
                 } else if(strcmp(key, "shadowx") == 0) {
                     old->shadowx = new->shadowx;
                 } else if(strcmp(key, "shadowy") == 0) {
@@ -1137,6 +1120,8 @@ static int command(AVFilterContext *ctx, const char *cmd, const char *arg, char 
                         FT_Stroker_Set(old->stroker, old->borderw << 6, FT_STROKER_LINECAP_ROUND,
                                     FT_STROKER_LINEJOIN_ROUND, 0);
                     }
+                } else {
+                    av_log(ctx, AV_LOG_ERROR, "Option '%s' cannot be modified with the 'change' command, use 'reinit' instead\n", key);
                 }
 //                av_log(ctx, AV_LOG_DEBUG, "option: %s %s\n", key, value);
                 av_free(key);
@@ -1261,15 +1246,78 @@ static int func_strftime(AVFilterContext *ctx, AVBPrint *bp,
                          char *fct, unsigned argc, char **argv, int tag)
 {
     const char *fmt = argc ? argv[0] : "%Y-%m-%d %H:%M:%S";
+    const char *fmt_begin = fmt;
+    int64_t unow;
     time_t now;
     struct tm tm;
+    const char *begin;
+    const char *tmp;
+    int len;
+    int div;
+    AVBPrint fmt_bp;
 
-    time(&now);
-    if (tag == 'L')
+    av_bprint_init(&fmt_bp, 0, AV_BPRINT_SIZE_UNLIMITED);
+
+    unow = av_gettime();
+    now  = unow / 1000000;
+    if (tag == 'L' || tag == 'm')
         localtime_r(&now, &tm);
     else
         tm = *gmtime_r(&now, &tm);
-    av_bprint_strftime(bp, fmt, &tm);
+
+    // manually parse format for %N (fractional seconds)
+    begin = fmt;
+    while ((begin = strchr(begin, '%'))) {
+        tmp = begin + 1;
+        len = 0;
+
+        // skip escaped "%%"
+        if (*tmp == '%') {
+            begin = tmp + 1;
+            continue;
+        }
+
+        // count digits between % and possible N
+        while (*tmp != '\0' && av_isdigit((int)*tmp)) {
+            len++;
+            tmp++;
+        }
+
+        // N encountered, insert time
+        if (*tmp == 'N') {
+            int num_digits = 3; // default show millisecond [1,6]
+
+            // if digit given, expect [1,6], warn & clamp otherwise
+            if (len == 1) {
+                num_digits = av_clip(*(begin + 1) - '0', 1, 6);
+            } else if (len > 1) {
+                av_log(ctx, AV_LOG_WARNING, "Invalid number of decimals for %%N, using default of %i\n", num_digits);
+            }
+
+            len += 2; // add % and N to get length of string part
+
+            div = pow(10, 6 - num_digits);
+
+            av_bprintf(&fmt_bp, "%.*s%0*d", (int)(begin - fmt_begin), fmt_begin, num_digits, (int)(unow % 1000000) / div);
+
+            begin += len;
+            fmt_begin = begin;
+
+            continue;
+        }
+
+        begin = tmp;
+    }
+
+    av_bprintf(&fmt_bp, "%s", fmt_begin);
+    if (!av_bprint_is_complete(&fmt_bp)) {
+        av_log(ctx, AV_LOG_WARNING, "Format string truncated at %u/%u.", fmt_bp.size, fmt_bp.len);
+    }
+
+    av_bprint_strftime(bp, fmt_bp.str, &tm);
+
+    av_bprint_finalize(&fmt_bp, NULL);
+
     return 0;
 }
 
@@ -1548,20 +1596,20 @@ static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, in
     }
 
     // Check if a bitmap is needed
-    if(shift_x64 >= 0) {
+    if(shift_x64 >= 0 && shift_y64 >= 0) {
         // Get the bitmap subpixel index (0 -> 15)
         int idx = get_subpixel_idx(shift_x64, shift_y64);
 
         if(!glyph->bglyph[idx]) {
-            FT_Glyph tmpGlyph = glyph->glyph;
+            FT_Glyph tmp_glyph = glyph->glyph;
             // av_log(ctx, AV_LOG_DEBUG, "Rendering bitmap [%d] for glyph: %d\n", idx, code);
             shift.x = shift_x64;
             shift.y = shift_y64;
-            if(FT_Glyph_To_Bitmap(&tmpGlyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
+            if(FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
                 ret = AVERROR_EXTERNAL;
                 goto error;
             }
-            glyph->bglyph[idx] = (FT_BitmapGlyph)tmpGlyph;
+            glyph->bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
             if(glyph->bglyph[idx]->bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
                 av_log(ctx, AV_LOG_ERROR, "Monocromatic (1bpp) fonts are not supported.\n");
                 ret = AVERROR(EINVAL);
@@ -1569,13 +1617,13 @@ static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, in
             }
         }
         if (s->borderw && !glyph->border_bglyph[idx]) {
-            FT_Glyph tmpGlyph = glyph->border_glyph;
+            FT_Glyph tmp_glyph = glyph->border_glyph;
             // av_log(ctx, AV_LOG_DEBUG, "Rendering border bitmap [%d] for glyph: %d\n", idx, code);
-            if(FT_Glyph_To_Bitmap(&tmpGlyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
+            if(FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
                 ret = AVERROR_EXTERNAL;
                 goto error;
             }
-            glyph->border_bglyph[idx] = (FT_BitmapGlyph)tmpGlyph;
+            glyph->border_bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
         }
     }
     if(glyph_ptr) {
@@ -1602,21 +1650,21 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
     GlyphInfo *info;
     Glyph dummy = { 0 }, *glyph;
     FT_Bitmap bitmap;
-    FT_BitmapGlyph bGlyph;
-    uint8_t jCenter = 0, jRight = 0, jMiddle = 0, jBottom = 0;
+    FT_BitmapGlyph b_glyph;
+    uint8_t j_center = 0, j_right = 0, j_middle = 0, j_bottom = 0;
     int line_w, offset_y = 0;
     int clip_x = 0, clip_y = 0;
 
-    jCenter = strstr(s->text_align, "C") > 0;
-    jRight = strstr(s->text_align, "R") > 0;
-    jMiddle = strstr(s->text_align, "M") > 0;
-    jBottom = strstr(s->text_align, "B") > 0;
+    j_center = strstr(s->text_align, "C") > 0;
+    j_right = strstr(s->text_align, "R") > 0;
+    j_middle = strstr(s->text_align, "M") > 0;
+    j_bottom = strstr(s->text_align, "B") > 0;
     // av_log(s, AV_LOG_DEBUG, "Outer rectangle - w: %d, h: %d\n", s->box_width, s->box_height);
     // av_log(s, AV_LOG_DEBUG, "Text position: %s\n", s->text_align);
 
-    if(jMiddle) {
+    if(j_middle) {
         offset_y = (s->box_height - metrics->height) / 2;
-    } else if(jBottom) {
+    } else if(j_bottom) {
         offset_y = s->box_height - metrics->height;
     }
 
@@ -1639,16 +1687,16 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
             }
 
             idx = get_subpixel_idx(info->shift_x64, info->shift_y64);
-            bGlyph = borderw ? glyph->border_bglyph[idx] : glyph->bglyph[idx];
-            bitmap = bGlyph->bitmap;
-            x1 = x + info->x + bGlyph->left;
-            y1 = y + info->y - bGlyph->top + offset_y;
+            b_glyph = borderw ? glyph->border_bglyph[idx] : glyph->bglyph[idx];
+            bitmap = b_glyph->bitmap;
+            x1 = x + info->x + b_glyph->left;
+            y1 = y + info->y - b_glyph->top + offset_y;
             w1 = bitmap.width;
             h1 = bitmap.rows;
 
-            if(jCenter) {
+            if(j_center) {
                 x1 += (s->box_width - line_w) / 2;
-            } else if(jRight) {
+            } else if(j_right) {
                 x1 += s->box_width - line_w;
             }
 
@@ -1687,7 +1735,7 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
     return 0;
 }
 
-static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, char* text, int textLen) {
+static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text, int textLen) {
     hb->buf = hb_buffer_create();
     hb_buffer_set_direction(hb->buf, HB_DIRECTION_LTR);
     hb_buffer_set_script(hb->buf, HB_SCRIPT_LATIN);
@@ -1713,9 +1761,8 @@ static void hb_destroy(HarfbuzzData *hb) {
 static int measure_text(AVFilterContext *ctx, TextMetrics *metrics) {
     DrawTextContext *s = ctx->priv;
     char* text = s->expanded_text.str;
-    char* start = text;
-    int numchars = 0;
-    int glyphCount = 0;
+    char *textdup = av_strdup(text), *start = textdup;
+    int num_chars = 0;
     int width64 = 0, w64 = 0, height64 = 0;
     int cur_min_y64 = 0, first_max_y64 = -32000;
     int first_min_x64 = 32000, last_max_x64 = -32000;
@@ -1724,38 +1771,65 @@ static int measure_text(AVFilterContext *ctx, TextMetrics *metrics) {
     uint32_t code = 0;
     Glyph *glyph = NULL;
 
-    int i;
+    int i, tab_idx = 0, last_tab_idx = 0, line_offset = 0;
     char* p;
     int ret = 0;
 
+    // Count the lines and the tab characters
+    s->tab_count = 0;
     for (i = 0, p = text; 1; i++) {
         GET_UTF8(code, *p ? *p++ : 0, code = 0xfffd; goto continue_on_failed;);
 continue_on_failed:
         if(is_newline(code) || code == 0) {
             ++line_count;
-            if(code == 0) break;
+            if(code == 0) {
+                break;
+            }
+        } else if(code == '\t') {
+            ++s->tab_count;
         }
+    }
+
+    // Evaluate the width of the space character if needed to replace tabs
+    if(s->tab_count > 0 && !s->blank_advance64) {
+        HarfbuzzData hb_data;
+        shape_text_hb(s, &hb_data, " ", 1);
+        s->blank_advance64 = hb_data.glyph_pos[0].x_advance;
+        hb_destroy(&hb_data);
     }
 
     s->line_count = line_count;
     s->lines = av_mallocz(line_count * sizeof(TextLine));
+    s->tab_clusters = av_mallocz(s->tab_count * sizeof(uint32_t));
+    for(i = 0; i < s->tab_count; ++i) {
+        s->tab_clusters[i] = -1;
+    }
 
     // av_log(s, AV_LOG_DEBUG, "Starting text measurement...\n");
-
     line_count = 0;
-    for (i = 0, p = text; 1; i++) {
+    for (i = 0, p = textdup; 1; i++) {
+        if(*p == '\t') {
+            s->tab_clusters[tab_idx++] = i;
+            *p = ' ';
+        }
         GET_UTF8(code, *p ? *p++ : 0, code = 0xfffd; goto continue_on_failed2;);
 continue_on_failed2:
         if(is_newline(code) || code == 0) {
             TextLine *cur_line = &s->lines[line_count];
             HarfbuzzData *hb = &cur_line->hb_data;
-            shape_text_hb(s, hb, start, numchars);
+            cur_line->cluster_offset = line_offset;
+            shape_text_hb(s, hb, start, num_chars);
             w64 = 0;
             cur_min_y64 = 32000;
             for(int t = 0; t < hb->glyph_count; ++t) {
+                uint8_t is_tab = last_tab_idx < s->tab_count &&
+                    hb->glyph_info[t].cluster == s->tab_clusters[last_tab_idx] - line_offset;
+                if(is_tab) {
+                    ++last_tab_idx;
+                }
                 ret = load_glyph(ctx, &glyph, hb->glyph_info[t].codepoint, -1, -1);
                 if(ret != 0) {
-                    return ret;
+                    break;
                 }
                 if(line_count == 0) {
                     first_max_y64 = FFMAX(glyph->bbox.yMax, first_max_y64);
@@ -1771,7 +1845,12 @@ continue_on_failed2:
                     last_max_x64 = FFMAX(glyph->bbox.xMax, last_max_x64);
                     cur_line->offset_right64 = glyph->bbox.xMax;
                 } else {
-                    w64 += hb->glyph_pos[t].x_advance;
+                    if(is_tab) {
+                        int size = s->blank_advance64 * s->tabsize;
+                        w64 = (w64 / size + 1) * size;
+                    } else {
+                        w64 += hb->glyph_pos[t].x_advance;
+                    }
                 }
                 cur_min_y64 = FFMIN(glyph->bbox.yMin, cur_min_y64);
                 min_y64 = FFMIN(glyph->bbox.yMin, min_y64);
@@ -1784,53 +1863,59 @@ continue_on_failed2:
                 // av_log(s, AV_LOG_DEBUG, "      min_y64: %d -- max_y64: %d -- min_x64: %d -- max_x64: %d\n",
                 //     min_y64, max_y64, min_x64, max_x64);
             }
-            // TODO (OFFSET LEFT)
-            // cur_line->width64 = w64 - cur_line->offset_left64;
-            cur_line->width64 = w64;
 
-            // av_log(s, AV_LOG_DEBUG, "  Line: %d -- glyphs count: %d - width64: %d - offset_left64: %d - offset_right64: %d)\n",
-            //     line_count, hb->glyph_count, cur_line->width64, cur_line->offset_left64, cur_line->offset_right64);
+            if(ret == 0) {
+                // TODO (OFFSET LEFT)
+                // cur_line->width64 = w64 - cur_line->offset_left64;
+                cur_line->width64 = w64;
 
-            if(w64 > width64) {
-                width64 = w64;
+                av_log(s, AV_LOG_DEBUG, "  Line: %d -- glyphs count: %d - width64: %d - offset_left64: %d - offset_right64: %d)\n",
+                    line_count, hb->glyph_count, cur_line->width64, cur_line->offset_left64, cur_line->offset_right64);
+
+                if(w64 > width64) {
+                    width64 = w64;
+                }
+                num_chars = -1;
+                start = p;
+                ++line_count;
+                line_offset = i + 1;
             }
-            glyphCount += hb->glyph_count;
-            numchars = -1;
-            start = p;
-            ++line_count;
         }
 
-        if(code == 0) break;
-        ++numchars;
+        if(code == 0 || ret != 0) break;
+        ++num_chars;
     }
 
-    metrics->line_height64 = s->face->size->metrics.height;
-    height64 = (s->line_spacing >= 0 ? s->line_spacing * 64 : metrics->line_height64) *
-        (FFMAX(0, line_count - 1)) + first_max_y64 - cur_min_y64;
-    // TODO (LEFT OFFSET) 
-    // metrics->width = POS_CEIL(width64 - first_min_x64, 64);
-    metrics->width = POS_CEIL(width64, 64);
-    if(s->y_align == YA_FONT) {
-        metrics->height = POS_CEIL(metrics->line_height64 * line_count, 64);
-    } else {
-        metrics->height = POS_CEIL(height64, 64);
+    if(ret == 0) {
+        metrics->line_height64 = s->face->size->metrics.height;
+        height64 = (s->line_spacing >= 0 ? s->line_spacing * 64 : metrics->line_height64) *
+            (FFMAX(0, line_count - 1)) + first_max_y64 - cur_min_y64;
+        // TODO (LEFT OFFSET) 
+        // metrics->width = POS_CEIL(width64 - first_min_x64, 64);
+        metrics->width = POS_CEIL(width64, 64);
+        if(s->y_align == YA_FONT) {
+            metrics->height = POS_CEIL(metrics->line_height64 * line_count, 64);
+        } else {
+            metrics->height = POS_CEIL(height64, 64);
+        }
+        metrics->offset_top64 = first_max_y64;
+        metrics->offset_right64 = last_max_x64;
+        metrics->offset_bottom64 = cur_min_y64;
+        metrics->offset_left64 = first_min_x64;
+        metrics->min_x64 = min_x64;
+        metrics->min_y64 = min_y64;
+        metrics->max_x64 = max_x64;
+        metrics->max_y64 = max_y64;
+
+        // av_log(s, AV_LOG_DEBUG, "  Text: width: %d | height: %d\n", metrics->width, metrics->height);
+        // av_log(s, AV_LOG_DEBUG, "      off_t64: %d | off_r64: %d | off_b64: %d | off_l64: %d\n",
+        //     metrics->offset_top64, metrics->offset_right64, metrics->offset_bottom64, metrics->offset_left64);
+        // av_log(s, AV_LOG_DEBUG, "      min_x64: %d | min_y64: %d | max_x64: %d | max_y64: %d\n",
+        //     metrics->min_x64, metrics->min_y64, metrics->max_x64, metrics->max_y64);
+        // av_log(s, AV_LOG_DEBUG, "Text measurement completed\n");
     }
-    metrics->offset_top64 = first_max_y64;
-    metrics->offset_right64 = last_max_x64;
-    metrics->offset_bottom64 = cur_min_y64;
-    metrics->offset_left64 = first_min_x64;
-    metrics->min_x64 = min_x64;
-    metrics->min_y64 = min_y64;
-    metrics->max_x64 = max_x64;
-    metrics->max_y64 = max_y64;
 
-    // av_log(s, AV_LOG_DEBUG, "  Text: width: %d | height: %d\n", metrics->width, metrics->height);
-    // av_log(s, AV_LOG_DEBUG, "      off_t64: %d | off_r64: %d | off_b64: %d | off_l64: %d\n",
-    //     metrics->offset_top64, metrics->offset_right64, metrics->offset_bottom64, metrics->offset_left64);
-    // av_log(s, AV_LOG_DEBUG, "      min_x64: %d | min_y64: %d | max_x64: %d | max_y64: %d\n",
-    //     metrics->min_x64, metrics->min_y64, metrics->max_x64, metrics->max_y64);
-    // av_log(s, AV_LOG_DEBUG, "Text measurement completed\n");
-
+    av_free(textdup);
     return ret;
 }
 
@@ -1842,7 +1927,6 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     int shift_x64, shift_y64;
     int x64, y64;
     int offset_left = 0;
-    int l;
     Glyph *glyph = NULL;
 
     time_t now = time(0);
@@ -1858,6 +1942,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     int height = frame->height;
     int rec_x = 0, rec_y = 0, rec_width = 0, rec_height = 0;
     int is_outside = 0;
+    int last_tab_idx = 0;
 
     TextMetrics metrics;
 
@@ -1946,6 +2031,29 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     update_color_with_alpha(s, &bordercolor, s->bordercolor);
     update_color_with_alpha(s, &boxcolor   , s->boxcolor   );
 
+    if (s->draw_box && s->boxborderw) {
+        int bbsize[4];
+        int count;
+        count = string_to_array(s->boxborderw, bbsize, 4);
+        if(count == 1) {
+            s->bb_top = s->bb_right = s->bb_bottom = s->bb_left = bbsize[0];
+        } else if(count == 2) {
+            s->bb_top = s->bb_bottom = bbsize[0];
+            s->bb_right = s->bb_left = bbsize[1];
+        } else if(count == 3) {
+            s->bb_top = bbsize[0];
+            s->bb_right = s->bb_left = bbsize[1];
+            s->bb_bottom = bbsize[2];
+        } else if(count == 4) {
+            s->bb_top = bbsize[0];
+            s->bb_right = bbsize[1];
+            s->bb_bottom = bbsize[2];
+            s->bb_left = bbsize[3];
+        }
+    } else {
+        s->bb_top = s->bb_right = s->bb_bottom = s->bb_left = 0;
+    }
+
     if (s->fix_bounds) {
         /* calculate footprint of text effects */
         int borderoffset  = s->borderw  ? FFMAX(s->borderw, 0) : 0;
@@ -1968,30 +2076,6 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
             s->y = FFMAX(height - metrics.height - offsetbottom, 0);
     }
 
-    if (s->draw_box && s->boxborderw) {
-        int *bbsize = av_mallocz(sizeof(int) * 4);
-        int count;
-        count = string_to_array(s->boxborderw, bbsize, 4);
-        if(count == 1) {
-            s->bb_top = s->bb_right = s->bb_bottom = s->bb_left = bbsize[0];
-        } else if(count == 2) {
-            s->bb_top = s->bb_bottom = bbsize[0];
-            s->bb_right = s->bb_left = bbsize[1];
-        } else if(count == 3) {
-            s->bb_top = bbsize[0];
-            s->bb_right = s->bb_left = bbsize[1];
-            s->bb_bottom = bbsize[2];
-        } else if(count == 4) {
-            s->bb_top = bbsize[0];
-            s->bb_right = bbsize[1];
-            s->bb_bottom = bbsize[2];
-            s->bb_left = bbsize[3];
-        }
-        av_free(bbsize);
-    } else {
-        s->bb_top = s->bb_right = s->bb_bottom = s->bb_left = 0;
-    }
-
     x = 0;
     y = 0;
     x64 = (int)(s->x * 64.);
@@ -2003,15 +2087,21 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
         y64 = (int)(s->y * 64. + metrics.offset_top64);
     }
 
-    for(l = 0; l < s->line_count; ++l) {
+    for(int l = 0; l < s->line_count; ++l) {
         TextLine *line = &s->lines[l];
         HarfbuzzData *hb = &line->hb_data;
         line->glyphs = av_mallocz(hb->glyph_count * sizeof(GlyphInfo));
 
         for(int t = 0; t < hb->glyph_count; ++t) {
-            GlyphInfo *gInfo = &line->glyphs[t];
-            int true_x = x + hb->glyph_pos[t].x_offset;
-            int true_y = y + hb->glyph_pos[t].y_offset;
+            GlyphInfo *g_info = &line->glyphs[t];
+            uint8_t is_tab = last_tab_idx < s->tab_count &&
+                hb->glyph_info[t].cluster == s->tab_clusters[last_tab_idx] - line->cluster_offset;
+            int true_x, true_y;
+            if(is_tab) {
+                ++last_tab_idx;
+            }
+            true_x = x + hb->glyph_pos[t].x_offset;
+            true_y = y + hb->glyph_pos[t].y_offset;
             shift_x64 = (((x64 + true_x) >> 4) & 0b0011) << 4;
             shift_y64 = ((4 - (((y64 + true_y) >> 4) & 0b0011)) & 0b0011) << 4;
 
@@ -2019,13 +2109,18 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
             if (ret != 0) {
                 return ret;
             }
-            gInfo->code = hb->glyph_info[t].codepoint;
-            gInfo->x = (x64 + true_x) >> 6;
-            gInfo->y = ((y64 + true_y) >> 6) + (shift_y64 > 0 ? 1 : 0);
-            gInfo->shift_x64 = shift_x64;
-            gInfo->shift_y64 = shift_y64;
+            g_info->code = hb->glyph_info[t].codepoint;
+            g_info->x = (x64 + true_x) >> 6;
+            g_info->y = ((y64 + true_y) >> 6) + (shift_y64 > 0 ? 1 : 0);
+            g_info->shift_x64 = shift_x64;
+            g_info->shift_y64 = shift_y64;
 
-            x += hb->glyph_pos[t].x_advance;
+            if(!is_tab) {
+                x += hb->glyph_pos[t].x_advance;
+            } else {
+                int size = s->blank_advance64 * s->tabsize;
+                x = (x / size + 1) * size;
+            }
             y += hb->glyph_pos[t].y_advance;
         }
 
@@ -2099,12 +2194,13 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     }
 
     // FREE data structures
-    for(l = 0; l < s->line_count; ++l) {
+    for(int l = 0; l < s->line_count; ++l) {
         TextLine *line = &s->lines[l];
         av_freep(&line->glyphs);
         hb_destroy(&line->hb_data);
     }
     av_freep(&s->lines);
+    av_freep(&s->tab_clusters);
 
     return 0;
 }
@@ -2131,7 +2227,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
         }
     }
 
-    if (s->reload) {
+    if (s->reload && !(inlink->frame_count_out % s->reload)) {
         if ((ret = load_textfile(ctx)) < 0) {
             av_frame_free(&frame);
             return ret;

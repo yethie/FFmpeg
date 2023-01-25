@@ -12052,8 +12052,7 @@ option, check the @ref{color syntax,,"Color" section in the ffmpeg-utils manual,
 The default value of @var{boxcolor} is "white".
 
 @item line_spacing
-Set the height of each text line in pixels.
-The default value of @var{line_spacing} matches the font-defined line height.
+Set the line spacing in pixels. The default value of @var{line_spacing} is 0.
 
 @item text_align
 Set the vertical and horizontal alignment of the text with respect to the box boundaries.

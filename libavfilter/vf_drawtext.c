@@ -31,8 +31,6 @@
  * - Text can be aligned horizontally (top, middle, bottom) and vertically
  *   (left, center, right) relative to the background box
  * - The default line height is now the one defined in the font
- * - The line_spacing parameter is now used to specify the line height.
- *   In the previous version the line height was: max_glyph_h + line_spacing
  * - The new y_align parameter specifies if the user provided y value is
  *   referred to the top of the text, to the font baseline or to the
  *   top of the font.
@@ -105,7 +103,7 @@
 static const char *const var_names[] = {
     "dar",
     "hsub", "vsub",
-    "line_h", "lh",           ///< line height, same as max_glyph_h
+    "line_h", "lh",           ///< line height
     "main_h", "h", "H",       ///< height of the input video
     "main_w", "w", "W",       ///< width  of the input video
     "max_glyph_a", "ascent",  ///< max glyph ascender
@@ -1888,7 +1886,7 @@ continue_on_failed2:
 
     if(ret == 0) {
         metrics->line_height64 = s->face->size->metrics.height;
-        height64 = (s->line_spacing >= 0 ? s->line_spacing * 64 : metrics->line_height64) *
+        height64 = (metrics->line_height64 + s->line_spacing * 64) *
             (FFMAX(0, line_count - 1)) + first_max_y64 - cur_min_y64;
         // TODO (LEFT OFFSET) 
         // metrics->width = POS_CEIL(width64 - first_min_x64, 64);
@@ -2013,7 +2011,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
 
     s->var_values[VAR_TOP_A] = POS_CEIL(metrics.offset_top64, 64);
     s->var_values[VAR_BOTTOM_D] = POS_CEIL(metrics.offset_bottom64, 64);
-    s->var_values[VAR_LINE_H] = s->var_values[VAR_LH] = metrics.line_height64 / 64;
+    s->var_values[VAR_LINE_H] = s->var_values[VAR_LH] = metrics.line_height64 / 64.;
 
     if (s->text_source == AV_FRAME_DATA_DETECTION_BBOXES) {
         s->var_values[VAR_X] = s->x;
@@ -2124,7 +2122,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
             y += hb->glyph_pos[t].y_advance;
         }
 
-        y += s->line_spacing >= 0 ? s->line_spacing * 64 : metrics.line_height64;
+        y += metrics.line_height64 + s->line_spacing * 64;
         x = 0;
     }
 

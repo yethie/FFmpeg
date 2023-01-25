@@ -71,18 +71,17 @@ https://user-images.githubusercontent.com/27201066/214630731-7dc91908-59ec-495c-
 https://user-images.githubusercontent.com/27201066/214632295-3aa439ef-0835-40cd-8e9f-3ef483af4b7d.mp4
 
 ### Change command
-The "reinit" command causes the re-initialization of the whole filter configuration, the font file is reloaded and glyphs are re-rendered. This causes an overhead that can be avoided when the command is not used to change the font. In the following video the "change" command was used to modify the text coordinates at each frame and the rendering was around 10 time faster than using the "reinit" command.
+The "reinit" command causes the re-initialization of the whole filter configuration, the font file is reloaded and glyphs are re-rendered. This causes an overhead that can be avoided when the command is not used to change the font. In the following video the "change" command was used to modify the text coordinates at each frame and the rendering was about 10 time faster than using the "reinit" command.
 
 https://user-images.githubusercontent.com/27201066/214634079-21ba9418-c9bf-4b33-aac3-98670c3fb67c.mp4
 
 ### Default line height
-When writing multiline text the current filter implementation uses a line height value that depends on the glyphs contained in the text. Using the line height defined in the font metrics gives a better looking and more stable result.
+When writing multiline text the current filter implementation uses a line height value that depends on the glyphs contained in the text. Using the line height defined in the font metrics gives a better looking and more stable result. In the following images two instances of drawtext filter are used to draw two texts with three lines each.
 
-*Current filter implementation*
+*Current filter implementation*: the line height depends on the text content
 
-https://user-images.githubusercontent.com/27201066/214638663-f395fb54-8d6d-4541-879d-2ae0dec31dd6.mp4
+![line_height-old](https://user-images.githubusercontent.com/27201066/214710175-536e5f4c-3711-4abf-b133-0b62e875fb7d.png)
 
-*Enhanced filter*
+*Enhanced filter*: the line height does not depend on the text content
 
-https://user-images.githubusercontent.com/27201066/214638729-896f9eab-1c46-4807-b523-b81ccb68284c.mp4
-
+![line_height-new](https://user-images.githubusercontent.com/27201066/214710200-453d3c4d-fe9a-4e97-a68e-887d127f55f6.png)

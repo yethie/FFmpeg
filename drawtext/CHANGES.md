@@ -40,6 +40,38 @@ The height of a line is now equal to the one defined in the font metrics. It was
 
 ## Examples
 ### Text shaping
-The following images show the difference between unshaped text and shaped text using two different fonts. In the process of shaping the distance between the letters "V" and "A" is changed and some characters are merged into a single glyph ("fi" in the previous example, "ff" in the second example).
+The following images show the difference between unshaped text and shaped text using two different fonts. In the process of shaping the distance between the letters "V" and "A" is changed and some characters are merged into a single glyph ("ff" in the previous example, "fi" in the second example).
 
-> Written with [StackEdit](https://stackedit.io/).
+font: *DejaVu Serif*
+
+![unshaped text](https://user-images.githubusercontent.com/27201066/214627926-c3b5c6a4-ba83-4e4b-82b8-7bdc8790770c.png)
+
+![shaped text](https://user-images.githubusercontent.com/27201066/214627474-a8cc9fa8-c3a3-493e-95fe-86363aca0710.png)
+
+font: *PT Serif Regular*
+
+![unshaped text](https://user-images.githubusercontent.com/27201066/214628371-fc71c23e-edd3-459e-8ac9-73a69ae0ca02.png)
+
+![shaped text](https://user-images.githubusercontent.com/27201066/214628436-89b87c62-d607-4ba6-b752-6ba6de16d49e.png)
+
+### Box size and text alignment
+
+![box size and text align](https://user-images.githubusercontent.com/27201066/214628965-82e3303b-c378-4c13-906b-9012b4174faa.png)
+
+### Y alignment
+In the following image the blue line was placed at the y value specified as an option to the drawtext filter. The two words are drawn using two instances of the drawtext filter with the same `y` value. The effect of the three possible values of the y_align option are shown. The value `text` mimics the behavior of the current filter implementation.
+
+![y_align](https://user-images.githubusercontent.com/27201066/214629259-a57dce1c-c112-47cb-a3c5-8625e51e5102.png)
+
+### Subpixel precision
+Subpixel precision enables smoother text animations. In the first video the text movement along the "y" axis is a bit jerky, while it is smoother in the second video.
+
+https://user-images.githubusercontent.com/27201066/214630731-7dc91908-59ec-495c-be1c-a51eb50ba607.mp4
+
+https://user-images.githubusercontent.com/27201066/214632295-3aa439ef-0835-40cd-8e9f-3ef483af4b7d.mp4
+
+### Change command
+The "reinit" command causes the re-initialization of the whole filter configuration, the font file is reloaded and glyphs are re-rendered. This causes an overhead that can be avoided when the command is not used to change the font. In the following video the "change" command was used to modify the text coordinates at each frame and the rendering was around 10 time faster than using the "reinit" command.
+
+https://user-images.githubusercontent.com/27201066/214634079-21ba9418-c9bf-4b33-aac3-98670c3fb67c.mp4
+

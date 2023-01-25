@@ -75,3 +75,14 @@ The "reinit" command causes the re-initialization of the whole filter configurat
 
 https://user-images.githubusercontent.com/27201066/214634079-21ba9418-c9bf-4b33-aac3-98670c3fb67c.mp4
 
+### Default line height
+When writing multiline text the current filter implementation uses a line height value that depends on the glyphs contained in the text. Using the line height defined in the font metrics gives a better looking and more stable result.
+
+*Current filter implementation*
+
+https://user-images.githubusercontent.com/27201066/214638663-f395fb54-8d6d-4541-879d-2ae0dec31dd6.mp4
+
+*Enhanced filter*
+
+https://user-images.githubusercontent.com/27201066/214638729-896f9eab-1c46-4807-b523-b81ccb68284c.mp4
+

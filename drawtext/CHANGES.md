@@ -73,7 +73,7 @@ https://user-images.githubusercontent.com/27201066/214630731-7dc91908-59ec-495c-
 https://user-images.githubusercontent.com/27201066/214632295-3aa439ef-0835-40cd-8e9f-3ef483af4b7d.mp4
 
 ### Change command
-The "reinit" command causes the re-initialization of the whole filter configuration, the font file is reloaded and glyphs are re-rendered. This causes an overhead that can be avoided when the command is not used to change the font. In the following video the "change" command was used to modify the text coordinates at each frame and the rendering was about 10 time faster than using the "reinit" command.
+The "reinit" command causes the re-initialization of the whole filter configuration, the font file is reloaded and glyphs are re-rendered. This causes an overhead that can be avoided when the command is not used to change the font. In the following video the "change" command was used to modify the text coordinates at each frame and the rendering was about 10 times faster than using the "reinit" command.
 
 https://user-images.githubusercontent.com/27201066/214634079-21ba9418-c9bf-4b33-aac3-98670c3fb67c.mp4
 

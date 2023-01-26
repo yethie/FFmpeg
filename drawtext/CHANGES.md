@@ -18,7 +18,9 @@ The filter depends on the libharfbuzz shaping library, which must be enabled usi
 
 ### New options
 `boxw, boxh` force the width and height of the box around text
+
 `text_align` set the text vertical and horizontal alignment
+
 `y_align`define what the `y` parameter should be referred to
 
 ### Modified options
@@ -40,7 +42,7 @@ The height of a line is now equal to the one defined in the font metrics. It was
 
 ## Examples
 ### Text shaping
-The following images show the difference between unshaped text and shaped text using two different fonts. In the process of shaping the distance between the letters "V" and "A" is changed and some characters are merged into a single glyph ("ff" in the previous example, "fi" in the second example).
+The following images show the difference between unshaped text and shaped text using two different fonts. In the process of shaping the distance between the letters "V" and "A" is changed and some characters are merged into a single glyph ("ff" in the previous example, "fi" in the second example). For each font the first image was rendered using the current filter implementation, the second one was rendered using the modified filter.
 
 font: *DejaVu Serif*
 
@@ -64,7 +66,7 @@ In the following image the blue line was placed at the y value specified as an o
 ![y_align](https://user-images.githubusercontent.com/27201066/214629259-a57dce1c-c112-47cb-a3c5-8625e51e5102.png)
 
 ### Subpixel precision
-Subpixel precision enables smoother text animations. In the first video the text movement along the "y" axis is a bit jerky, while it is smoother in the second video.
+Subpixel precision enables smoother text animations. In the first video (rendered using the current filter implementation) the text movement along the "y" axis is a bit jerky, while it is smoother in the second video (rendered with the modified filter).
 
 https://user-images.githubusercontent.com/27201066/214630731-7dc91908-59ec-495c-be1c-a51eb50ba607.mp4
 
@@ -78,10 +80,10 @@ https://user-images.githubusercontent.com/27201066/214634079-21ba9418-c9bf-4b33-
 ### Default line height
 When writing multiline text the current filter implementation uses a line height value that depends on the glyphs contained in the text. Using the line height defined in the font metrics gives a better looking and more stable result. In the following images two instances of drawtext filter are used to draw two texts with three lines each.
 
-*Current filter implementation*: the line height depends on the text content
+*Current filter implementation*: the line height depends on the text
 
 ![line_height-old](https://user-images.githubusercontent.com/27201066/214710175-536e5f4c-3711-4abf-b133-0b62e875fb7d.png)
 
-*Enhanced filter*: the line height does not depend on the text content
+*Enhanced filter*: the line height does not depend on the text
 
 ![line_height-new](https://user-images.githubusercontent.com/27201066/214710200-453d3c4d-fe9a-4e97-a68e-887d127f55f6.png)

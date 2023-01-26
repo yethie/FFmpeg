@@ -12457,11 +12457,13 @@ Full filter invocation with sendcmd would look like this:
 sendcmd=c='56.0 drawtext reinit fontsize=56\:fontcolor=green\:text=Hello\\ World'
 @end example
 
-@item change
-Alter a subset of the existing filter parameters. Using this command results in a
-faster execution of the filter rather than using the 'reinit' command. The syntax
-for the argument is the same as for filter invocation, the following parameters
-can be altered:
+If the entire argument can't be parsed or applied as valid values then the filter will
+continue with its existing parameters.
+
+@end table
+
+The following options are also supported as @ref{commands}:
+
 @itemize @bullet
 @item x
 @item y
@@ -12471,7 +12473,6 @@ can be altered:
 @item boxcolor
 @item bordercolor
 @item shadowcolor
-@item fontcolor_expr
 @item box
 @item boxw
 @item boxh
@@ -12482,11 +12483,6 @@ can be altered:
 @item shadowy
 @item borderw
 @end itemize
-
-@end table
-
-If the entire argument can't be parsed or applied as valid values then the filter will
-continue with its existing parameters.
 
 @subsection Examples
 

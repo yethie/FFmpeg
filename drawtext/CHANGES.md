@@ -9,7 +9,7 @@ The main reason for me to modify the drawtext filter, is that I needed a way to 
  5. Allow users to specify text alignment in horizontal and vertical directions
  6. Allow users to specify what the "y" parameter is referred to
  7. Add some variables that the users can insert in expressions (to add more flexibility to text positioning)
- 8. Implement the "change" command
+ 8. Support a subset of the filter options as commands
 
 ## Build
 The filter depends on the libharfbuzz shaping library, which must be enabled using the new "--enable-libharfbuzz" configuration option. Without this option the filter is not compiled at all.
@@ -65,18 +65,6 @@ In the following image the blue line was placed at the y value specified as an o
 
 ![y_align](https://user-images.githubusercontent.com/27201066/214629259-a57dce1c-c112-47cb-a3c5-8625e51e5102.png)
 
-### Subpixel precision
-Subpixel precision enables smoother text animations. In the first video (rendered using the current filter implementation) the text movement along the "y" axis is a bit jerky, while it is smoother in the second video (rendered with the modified filter).
-
-https://user-images.githubusercontent.com/27201066/214630731-7dc91908-59ec-495c-be1c-a51eb50ba607.mp4
-
-https://user-images.githubusercontent.com/27201066/214632295-3aa439ef-0835-40cd-8e9f-3ef483af4b7d.mp4
-
-### Change command
-The "reinit" command causes the re-initialization of the whole filter configuration, the font file is reloaded and glyphs are re-rendered. This causes an overhead that can be avoided when the command is not used to change the font. In the following video the "change" command was used to modify the text coordinates at each frame and the rendering was about 10 times faster than using the "reinit" command.
-
-https://user-images.githubusercontent.com/27201066/214634079-21ba9418-c9bf-4b33-aac3-98670c3fb67c.mp4
-
 ### Default line height
 When writing multiline text the current filter implementation uses a line height value that depends on the glyphs contained in the text. Using the line height defined in the font metrics gives a better looking and more stable result. In the following images two instances of drawtext filter are used to draw two texts with three lines each.
 
@@ -84,6 +72,18 @@ When writing multiline text the current filter implementation uses a line height
 
 ![line_height-old](https://user-images.githubusercontent.com/27201066/214710175-536e5f4c-3711-4abf-b133-0b62e875fb7d.png)
 
-*Enhanced filter*: the line height does not depend on the text
+*Modified filter*: the line height does not depend on the text
 
 ![line_height-new](https://user-images.githubusercontent.com/27201066/214710200-453d3c4d-fe9a-4e97-a68e-887d127f55f6.png)
+
+### Subpixel precision
+Subpixel precision enables smoother text animations. In the first video (rendered using the current filter implementation) the text movement along the "y" axis is a bit jerky, while it is smoother in the second video (rendered with the modified filter).
+
+https://user-images.githubusercontent.com/27201066/214630731-7dc91908-59ec-495c-be1c-a51eb50ba607.mp4
+
+https://user-images.githubusercontent.com/27201066/214632295-3aa439ef-0835-40cd-8e9f-3ef483af4b7d.mp4
+
+### Commands
+The "reinit" command causes the re-initialization of the whole filter configuration, the font file is reloaded and glyphs are re-rendered. This causes an overhead that can be avoided when the command is not used to change the font. In the following video the "x", "y" and "text" commands were used to modify the text and its position at each frame, the rendering was about 10 times faster than using the "reinit" command.
+
+https://user-images.githubusercontent.com/27201066/214634079-21ba9418-c9bf-4b33-aac3-98670c3fb67c.mp4

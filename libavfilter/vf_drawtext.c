@@ -36,8 +36,7 @@
  *   top of the font.
  * - The boxborderw parameter can now contain a different value for each border
  *   (e.g. boxborderw=top|right|bottom|left)
- * - The "change" command can be used to modify a subset of the filter parameters.
- *   Using the "change" command is much faster than using the "reinit" command.
+ * - Many filter parameters are now supported as commands.
  * - The following new variables can be used in the x and y expressions:
  *   font_a, font_d, top_a, bottom_d
  */
@@ -207,7 +206,7 @@ typedef struct GlyphInfo {
     int shift_y64;                  ///< the vertical shift of the glyph in 26.6 units
 } GlyphInfo;
 
-// Information about a single line of text
+/** Information about a single line of text */
 typedef struct TextLine {
     int offset_left64;              ///< offset between the origin and
                                     ///  the leftmost pixel of the first glyph
@@ -251,7 +250,7 @@ typedef struct TextMetrics {
     int min_x64;                    ///< minimum value of bbox.xMin among glyphs (in 26.6 units)
     int max_x64;                    ///< maximum value of bbox.xMax among glyphs (in 26.6 units)
 
-    // Position and size of the background box (without borders)
+    // Position of the background box (without borders)
     int rect_x;                     ///< x position of the box
     int rect_y;                     ///< y position of the box
 } TextMetrics;
@@ -783,9 +782,6 @@ static int string_to_array(const char* source, int* result, int result_size) {
     av_strlcpy(dup, source, size);
     if(result_size > 0 && (curval = av_strtok(dup, "|", &saveptr))) {
         do {
-            if(counter == result_size) {
-                break;
-            }
             result[counter++] = atoi(curval);
         } while((curval = av_strtok(NULL, "|", &saveptr)) && counter < result_size);
     }
@@ -820,8 +816,6 @@ static av_cold int init(AVFilterContext *ctx)
         av_log(ctx, AV_LOG_ERROR, "No font filename provided\n");
         return AVERROR(EINVAL);
     }
-
-//    init_text(ctx);
 
     if (s->textfile) {
         if (s->text) {
@@ -1707,7 +1701,7 @@ static int measure_text(AVFilterContext *ctx, TextMetrics *metrics) {
     char* text = s->expanded_text.str;
     char *textdup = av_strdup(text), *start = textdup;
     int num_chars = 0;
-    int width64 = 0, w64 = 0, height64 = 0;
+    int width64 = 0, w64 = 0;
     int cur_min_y64 = 0, first_max_y64 = -32000;
     int first_min_x64 = 32000, last_max_x64 = -32000;
     int min_y64 = 32000, max_y64 = -32000, min_x64 = 32000, max_x64 = -32000;
@@ -1832,14 +1826,15 @@ continue_on_failed2:
 
     if(ret == 0) {
         metrics->line_height64 = s->face->size->metrics.height;
-        height64 = (metrics->line_height64 + s->line_spacing * 64) *
-            (FFMAX(0, line_count - 1)) + first_max_y64 - cur_min_y64;
+        
         // TODO (LEFT OFFSET) 
         // metrics->width = POS_CEIL(width64 - first_min_x64, 64);
         metrics->width = POS_CEIL(width64, 64);
         if(s->y_align == YA_FONT) {
             metrics->height = POS_CEIL(metrics->line_height64 * line_count, 64);
         } else {
+            int height64 = (metrics->line_height64 + s->line_spacing * 64) *
+                (FFMAX(0, line_count - 1)) + first_max_y64 - cur_min_y64;
             metrics->height = POS_CEIL(height64, 64);
         }
         metrics->offset_top64 = first_max_y64;

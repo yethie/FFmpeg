@@ -776,22 +776,24 @@ static enum AVFrameSideDataType text_source_string_parse(const char *text_source
 }
 
 // Convert a string formatted as "n1|n2|...|nN" into an integer array
-static int string_to_array(const char* source, int* result, int result_size) {
+static int string_to_array(const char* source, int* result, int result_size)
+{
     int counter = 0, size = strlen(source) + 1;
     char *saveptr, *curval, *dup = av_malloc(size);
     av_strlcpy(dup, source, size);
-    if(result_size > 0 && (curval = av_strtok(dup, "|", &saveptr))) {
+    if (result_size > 0 && (curval = av_strtok(dup, "|", &saveptr))) {
         do {
             result[counter++] = atoi(curval);
-        } while((curval = av_strtok(NULL, "|", &saveptr)) && counter < result_size);
+        } while ((curval = av_strtok(NULL, "|", &saveptr)) && counter < result_size);
     }
     av_free(dup);
     return counter;
 }
 
-static int validate_text_align(char* text_align) {
+static int validate_text_align(char* text_align)
+{
     int err = 0;
-    if(strlen(text_align) != 2
+    if (strlen(text_align) != 2
         || strchr("LCRTMB", text_align[0]) == NULL || strchr("LCRTMB", text_align[1]) == NULL
         || (strchr("TMB", text_align[0]) != NULL && strchr("LCR", text_align[1]) == NULL)
         || (strchr("LCR", text_align[0]) != NULL && strchr("TMB", text_align[1]) == NULL)) {
@@ -866,7 +868,7 @@ static av_cold int init(AVFilterContext *ctx)
         return AVERROR(EINVAL);
     }
 
-    if((err = validate_text_align(s->text_align))) {
+    if ((err = validate_text_align(s->text_align))) {
         av_log(ctx, AV_LOG_ERROR,
                "The value provided for parameter 'text_align' is not valid,\n");
         av_log(ctx, AV_LOG_ERROR,
@@ -892,7 +894,7 @@ static av_cold int init(AVFilterContext *ctx)
     if ((err = update_fontsize(ctx)) < 0)
         return err;
 
-    // Always init the stroker, may be needed if borderw is set via the "change" command
+    // Always init the stroker, may be needed if borderw is set via command
     if (FT_Stroker_New(s->library, &s->stroker)) {
         av_log(ctx, AV_LOG_ERROR, "Coult not init FT stroker\n");
         return AVERROR_EXTERNAL;
@@ -921,12 +923,13 @@ static int query_formats(AVFilterContext *ctx)
     return ff_set_common_formats(ctx, ff_draw_supported_pixel_formats(0));
 }
 
-static int glyph_enu_border_free(void *opaque, void *elem) {
+static int glyph_enu_border_free(void *opaque, void *elem)
+{
     Glyph *glyph = elem;
 
-    if(glyph->border_glyph != NULL) {
-        for(int t = 0; t < 16; ++t) {
-            if(glyph->border_bglyph[t] != NULL) {
+    if (glyph->border_glyph != NULL) {
+        for (int t = 0; t < 16; ++t) {
+            if (glyph->border_bglyph[t] != NULL) {
                 FT_Done_Glyph((FT_Glyph)glyph->border_bglyph[t]);
                 glyph->border_bglyph[t] = NULL;
             }
@@ -943,11 +946,11 @@ static int glyph_enu_free(void *opaque, void *elem)
 
     FT_Done_Glyph(glyph->glyph);
     FT_Done_Glyph(glyph->border_glyph);
-    for(int t = 0; t < 16; ++t) {
-        if(glyph->bglyph[t] != NULL) {
+    for (int t = 0; t < 16; ++t) {
+        if (glyph->bglyph[t] != NULL) {
             FT_Done_Glyph((FT_Glyph)glyph->bglyph[t]);
         }
-        if(glyph->border_bglyph[t] != NULL) {
+        if (glyph->border_bglyph[t] != NULL) {
             FT_Done_Glyph((FT_Glyph)glyph->border_bglyph[t]);
         }
     }
@@ -1060,24 +1063,21 @@ static int command(AVFilterContext *ctx, const char *cmd, const char *arg, char 
         ctx->priv = new;
         return config_input(ctx->inputs[0]);
     } else {
-//        av_log(ctx, AV_LOG_DEBUG, "Command '%s' '%s'\n", cmd, arg);
         int old_borderw = old->borderw;
         if ((ret = ff_filter_process_command(ctx, cmd, arg, res, res_len, flags)) < 0) {
             return ret;
         }
-        if(strcmp(cmd, "borderw") == 0) {
-            if(old->borderw != old_borderw) {
-                FT_Stroker_Set(old->stroker, old->borderw << 6, FT_STROKER_LINECAP_ROUND,
-                            FT_STROKER_LINEJOIN_ROUND, 0);
-                av_tree_enumerate(old->glyphs, NULL, NULL, glyph_enu_border_free);                            
-            }
-        } else if(strcmp(cmd, "text_align") == 0) {
-            // Cleanup border glyphs
-            if(validate_text_align(old->text_align) != 0) {
+        if (old->borderw != old_borderw) {
+            FT_Stroker_Set(old->stroker, old->borderw << 6, FT_STROKER_LINECAP_ROUND,
+                        FT_STROKER_LINEJOIN_ROUND, 0);
+            // Dispose the old border glyphs
+            av_tree_enumerate(old->glyphs, NULL, NULL, glyph_enu_border_free);                            
+        } else if (strcmp(cmd, "text_align") == 0) {
+            if (validate_text_align(old->text_align) != 0) {
                 av_log(ctx, AV_LOG_ERROR,
                     "Invalid command value '%s' for 'text_align'\n", old->text_align);
             }
-        } else if(strcmp(cmd, "fontsize") == 0) {
+        } else if (strcmp(cmd, "fontsize") == 0) {
             av_expr_free(old->fontsize_pexpr);
             old->fontsize_pexpr = NULL;
         }
@@ -1473,7 +1473,8 @@ static void update_alpha(DrawTextContext *s)
         s->alpha = 256 * alpha;
 }
 
-static inline int get_subpixel_idx(int shift_x64, int shift_y64) {
+static inline int get_subpixel_idx(int shift_x64, int shift_y64)
+{
     int idx = (shift_x64 >> 2) + (shift_y64 >> 4);
     return idx;
 }
@@ -1491,8 +1492,7 @@ static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, in
     dummy.code = code;
     dummy.fontsize = s->fontsize;
     glyph = av_tree_find(s->glyphs, &dummy, glyph_cmp, NULL);
-    if(!glyph) {
-//        av_log(ctx, AV_LOG_DEBUG, "Glyph: %d not cached -> loading...\n", code);
+    if (!glyph) {
         if (FT_Load_Glyph(s->face, code, s->ft_load_flags)) {
             return AVERROR(EINVAL);
         }
@@ -1524,7 +1524,7 @@ static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, in
         }
         av_tree_insert(&s->glyphs, glyph, glyph_cmp, &node);
     } else {
-        if(s->borderw && !glyph->border_glyph) {
+        if (s->borderw && !glyph->border_glyph) {
             glyph->border_glyph = glyph->glyph;
             if (FT_Glyph_StrokeBorder(&glyph->border_glyph, s->stroker, 0, 0)) {
                 ret = AVERROR_EXTERNAL;
@@ -1534,21 +1534,20 @@ static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, in
     }
 
     // Check if a bitmap is needed
-    if(shift_x64 >= 0 && shift_y64 >= 0) {
+    if (shift_x64 >= 0 && shift_y64 >= 0) {
         // Get the bitmap subpixel index (0 -> 15)
         int idx = get_subpixel_idx(shift_x64, shift_y64);
         shift.x = shift_x64;
         shift.y = shift_y64;
 
-        if(!glyph->bglyph[idx]) {
+        if (!glyph->bglyph[idx]) {
             FT_Glyph tmp_glyph = glyph->glyph;
-            // av_log(ctx, AV_LOG_DEBUG, "Rendering bitmap [%d] for glyph: %d\n", idx, code);
-            if(FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
+            if (FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
                 ret = AVERROR_EXTERNAL;
                 goto error;
             }
             glyph->bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
-            if(glyph->bglyph[idx]->bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
+            if (glyph->bglyph[idx]->bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
                 av_log(ctx, AV_LOG_ERROR, "Monocromatic (1bpp) fonts are not supported.\n");
                 ret = AVERROR(EINVAL);
                 goto error;
@@ -1556,15 +1555,14 @@ static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, in
         }
         if (s->borderw && !glyph->border_bglyph[idx]) {
             FT_Glyph tmp_glyph = glyph->border_glyph;
-            // av_log(ctx, AV_LOG_DEBUG, "Rendering border bitmap [%d] for glyph: %d\n", idx, code);
-            if(FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
+            if (FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
                 ret = AVERROR_EXTERNAL;
                 goto error;
             }
             glyph->border_bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
         }
     }
-    if(glyph_ptr) {
+    if (glyph_ptr) {
         *glyph_ptr = glyph;
     }
     return 0;
@@ -1597,30 +1595,25 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
     j_right = strstr(s->text_align, "R") > 0;
     j_middle = strstr(s->text_align, "M") > 0;
     j_bottom = strstr(s->text_align, "B") > 0;
-    // av_log(s, AV_LOG_DEBUG, "Outer rectangle - w: %d, h: %d\n", s->box_width, s->box_height);
-    // av_log(s, AV_LOG_DEBUG, "Text position: %s\n", s->text_align);
 
-    if(j_middle) {
+    if (j_middle) {
         offset_y = (s->box_height - metrics->height) / 2;
-    } else if(j_bottom) {
+    } else if (j_bottom) {
         offset_y = s->box_height - metrics->height;
     }
 
     clip_x = FFMIN(metrics->rect_x + s->box_width + s->bb_right, frame->width);
     clip_y = FFMIN(metrics->rect_y + s->box_height + s->bb_bottom, frame->height);
 
-    // av_log(s, AV_LOG_DEBUG, "Drawing text at (%d, %d) (clip_x: %d, clip_y: %d)\n",
-    //     x, y, clip_x, clip_y);
-
-    for(l = 0; l < s->line_count; ++l) {
+    for (l = 0; l < s->line_count; ++l) {
         TextLine *line = &s->lines[l];
         line_w = POS_CEIL(line->width64, 64);
-        for(g = 0; g < line->hb_data.glyph_count; ++g) {
+        for (g = 0; g < line->hb_data.glyph_count; ++g) {
             info = &line->glyphs[g];
             dummy.fontsize = s->fontsize;
             dummy.code = info->code;
             glyph = av_tree_find(s->glyphs, &dummy, glyph_cmp, NULL);
-            if(!glyph) {
+            if (!glyph) {
                 return AVERROR(EINVAL);
             }
 
@@ -1632,38 +1625,31 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
             w1 = bitmap.width;
             h1 = bitmap.rows;
 
-            if(j_center) {
+            if (j_center) {
                 x1 += (s->box_width - line_w) / 2;
-            } else if(j_right) {
+            } else if (j_right) {
                 x1 += s->box_width - line_w;
             }
 
             // Offset of the glyph's bitmap in the visible region
             dx = dy = 0;
-            if(x1 < metrics->rect_x - s->bb_left) {
+            if (x1 < metrics->rect_x - s->bb_left) {
                 dx = metrics->rect_x - s->bb_left - x1;
                 x1 = metrics->rect_x - s->bb_left;
             }
-            if(y1 < metrics->rect_y - s->bb_top) {
+            if (y1 < metrics->rect_y - s->bb_top) {
                 dy = metrics->rect_y - s->bb_top - y1;
                 y1 = metrics->rect_y - s->bb_top;
             }
 
             // check if the glyph is empty or out of the clipping region
-            if(dx >= w1 || dy >= h1 || x1 >= clip_x || y1 >= clip_y) {
-                // av_log(s, AV_LOG_DEBUG, "Glyph (code: %d - line: %d - glyph: %d - dx: %d - wx: %d) is empty or out of the clipping region\n",
-                //     info->code, l, g, dx, w1);
-                // av_log(s, AV_LOG_DEBUG, "Glyph %d -- dx: %d, dy: %d, x1: %d, y1: %d, w1: %d, h1: %d\n",
-                //     info->code, dx, dy, x1, y1, w1, h1);
+            if (dx >= w1 || dy >= h1 || x1 >= clip_x || y1 >= clip_y) {
                 continue;
             }
 
             pdx = dx + dy * bitmap.pitch;
             w1 = FFMIN(clip_x - x1, w1 - dx);
             h1 = FFMIN(clip_y - y1, h1 - dy);
-
-            // av_log(s, AV_LOG_DEBUG, "Drawing glyph %d[%d] (line: %d num: %d) at (%d, %d) (info.x: %d, info.y: %d)\n",
-            //     info->code, idx, l, g, x1, y1, info->x, info->y);
 
             ff_blend_mask(&s->dc, color, frame->data, frame->linesize, clip_x, clip_y,
                 bitmap.buffer + pdx, bitmap.pitch, w1, h1, 3, 0, x1, y1);
@@ -1673,7 +1659,8 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
     return 0;
 }
 
-static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text, int textLen) {
+static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text, int textLen) 
+{
     hb->buf = hb_buffer_create();
     hb_buffer_set_direction(hb->buf, HB_DIRECTION_LTR);
     hb_buffer_set_script(hb->buf, HB_SCRIPT_LATIN);
@@ -1687,7 +1674,8 @@ static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text
     hb->glyph_pos = hb_buffer_get_glyph_positions(hb->buf, &hb->glyph_count);
 }
 
-static void hb_destroy(HarfbuzzData *hb) {
+static void hb_destroy(HarfbuzzData *hb) 
+{
     hb_buffer_destroy(hb->buf);
     hb_font_destroy(hb->font);
     hb->buf = NULL;
@@ -1696,7 +1684,8 @@ static void hb_destroy(HarfbuzzData *hb) {
     hb->glyph_pos = NULL;
 }
 
-static int measure_text(AVFilterContext *ctx, TextMetrics *metrics) {
+static int measure_text(AVFilterContext *ctx, TextMetrics *metrics)
+{
     DrawTextContext *s = ctx->priv;
     char* text = s->expanded_text.str;
     char *textdup = av_strdup(text), *start = textdup;
@@ -1718,18 +1707,18 @@ static int measure_text(AVFilterContext *ctx, TextMetrics *metrics) {
     for (i = 0, p = text; 1; i++) {
         GET_UTF8(code, *p ? *p++ : 0, code = 0xfffd; goto continue_on_failed;);
 continue_on_failed:
-        if(is_newline(code) || code == 0) {
+        if (is_newline(code) || code == 0) {
             ++line_count;
-            if(code == 0) {
+            if (code == 0) {
                 break;
             }
-        } else if(code == '\t') {
+        } else if (code == '\t') {
             ++s->tab_count;
         }
     }
 
     // Evaluate the width of the space character if needed to replace tabs
-    if(s->tab_count > 0 && !s->blank_advance64) {
+    if (s->tab_count > 0 && !s->blank_advance64) {
         HarfbuzzData hb_data;
         shape_text_hb(s, &hb_data, " ", 1);
         s->blank_advance64 = hb_data.glyph_pos[0].x_advance;
@@ -1739,51 +1728,48 @@ continue_on_failed:
     s->line_count = line_count;
     s->lines = av_mallocz(line_count * sizeof(TextLine));
     s->tab_clusters = av_mallocz(s->tab_count * sizeof(uint32_t));
-    for(i = 0; i < s->tab_count; ++i) {
+    for (i = 0; i < s->tab_count; ++i) {
         s->tab_clusters[i] = -1;
     }
 
-    // av_log(s, AV_LOG_DEBUG, "Starting text measurement...\n");
     line_count = 0;
     for (i = 0, p = textdup; 1; i++) {
-        if(*p == '\t') {
+        if (*p == '\t') {
             s->tab_clusters[tab_idx++] = i;
             *p = ' ';
         }
         GET_UTF8(code, *p ? *p++ : 0, code = 0xfffd; goto continue_on_failed2;);
 continue_on_failed2:
-        if(is_newline(code) || code == 0) {
+        if (is_newline(code) || code == 0) {
             TextLine *cur_line = &s->lines[line_count];
             HarfbuzzData *hb = &cur_line->hb_data;
             cur_line->cluster_offset = line_offset;
             shape_text_hb(s, hb, start, num_chars);
             w64 = 0;
             cur_min_y64 = 32000;
-            for(int t = 0; t < hb->glyph_count; ++t) {
+            for (int t = 0; t < hb->glyph_count; ++t) {
                 uint8_t is_tab = last_tab_idx < s->tab_count &&
                     hb->glyph_info[t].cluster == s->tab_clusters[last_tab_idx] - line_offset;
-                if(is_tab) {
+                if (is_tab) {
                     ++last_tab_idx;
                 }
                 ret = load_glyph(ctx, &glyph, hb->glyph_info[t].codepoint, -1, -1);
-                if(ret != 0) {
+                if (ret != 0) {
                     break;
                 }
-                if(line_count == 0) {
+                if (line_count == 0) {
                     first_max_y64 = FFMAX(glyph->bbox.yMax, first_max_y64);
                 }
-                if(t == 0) {
-                    // TODO (OFFSET LEFT)
-                    // w64 += glyph->bbox.xMin;
+                if (t == 0) {
                     cur_line->offset_left64 = glyph->bbox.xMin;
                     first_min_x64 = FFMIN(glyph->bbox.xMin, first_min_x64);
                 }
-                if(t == hb->glyph_count - 1) {
+                if (t == hb->glyph_count - 1) {
                     w64 += glyph->bbox.xMax;
                     last_max_x64 = FFMAX(glyph->bbox.xMax, last_max_x64);
                     cur_line->offset_right64 = glyph->bbox.xMax;
                 } else {
-                    if(is_tab) {
+                    if (is_tab) {
                         int size = s->blank_advance64 * s->tabsize;
                         w64 = (w64 / size + 1) * size;
                     } else {
@@ -1795,22 +1781,15 @@ continue_on_failed2:
                 max_y64 = FFMAX(glyph->bbox.yMax, max_y64);
                 min_x64 = FFMIN(glyph->bbox.xMin, min_x64);
                 max_x64 = FFMAX(glyph->bbox.xMax, max_x64);
-
-                // av_log(s, AV_LOG_DEBUG, "    Glyph: %d -- yMin: %ld -- yMax: %ld -- xMin: %ld -- xMax: %ld\n",
-                //     hb->glyph_info[t].codepoint, glyph->bbox.yMin, glyph->bbox.yMax, glyph->bbox.xMin, glyph->bbox.xMax);
-                // av_log(s, AV_LOG_DEBUG, "      min_y64: %d -- max_y64: %d -- min_x64: %d -- max_x64: %d\n",
-                //     min_y64, max_y64, min_x64, max_x64);
             }
 
-            if(ret == 0) {
-                // TODO (OFFSET LEFT)
-                // cur_line->width64 = w64 - cur_line->offset_left64;
+            if (ret == 0) {
                 cur_line->width64 = w64;
 
                 av_log(s, AV_LOG_DEBUG, "  Line: %d -- glyphs count: %d - width64: %d - offset_left64: %d - offset_right64: %d)\n",
                     line_count, hb->glyph_count, cur_line->width64, cur_line->offset_left64, cur_line->offset_right64);
 
-                if(w64 > width64) {
+                if (w64 > width64) {
                     width64 = w64;
                 }
                 num_chars = -1;
@@ -1820,17 +1799,15 @@ continue_on_failed2:
             }
         }
 
-        if(code == 0 || ret != 0) break;
+        if (code == 0 || ret != 0) break;
         ++num_chars;
     }
 
-    if(ret == 0) {
+    if (ret == 0) {
         metrics->line_height64 = s->face->size->metrics.height;
         
-        // TODO (LEFT OFFSET) 
-        // metrics->width = POS_CEIL(width64 - first_min_x64, 64);
         metrics->width = POS_CEIL(width64, 64);
-        if(s->y_align == YA_FONT) {
+        if (s->y_align == YA_FONT) {
             metrics->height = POS_CEIL(metrics->line_height64 * line_count, 64);
         } else {
             int height64 = (metrics->line_height64 + s->line_spacing * 64) *
@@ -1845,13 +1822,6 @@ continue_on_failed2:
         metrics->min_y64 = min_y64;
         metrics->max_x64 = max_x64;
         metrics->max_y64 = max_y64;
-
-        // av_log(s, AV_LOG_DEBUG, "  Text: width: %d | height: %d\n", metrics->width, metrics->height);
-        // av_log(s, AV_LOG_DEBUG, "      off_t64: %d | off_r64: %d | off_b64: %d | off_l64: %d\n",
-        //     metrics->offset_top64, metrics->offset_right64, metrics->offset_bottom64, metrics->offset_left64);
-        // av_log(s, AV_LOG_DEBUG, "      min_x64: %d | min_y64: %d | max_x64: %d | max_y64: %d\n",
-        //     metrics->min_x64, metrics->min_y64, metrics->max_x64, metrics->max_y64);
-        // av_log(s, AV_LOG_DEBUG, "Text measurement completed\n");
     }
 
     av_free(textdup);
@@ -1885,12 +1855,9 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
 
     TextMetrics metrics;
 
-    // av_log(s, AV_LOG_DEBUG, "ascend: %ld descent: %ld height: %ld\n",
-    //     s->face->size->metrics.ascender, s->face->size->metrics.descender, s->face->size->metrics.height);
-
     av_bprint_clear(bp);
 
-    if(s->basetime != AV_NOPTS_VALUE)
+    if (s->basetime != AV_NOPTS_VALUE)
         now= frame->pts*av_q2d(ctx->inputs[0]->time_base) + s->basetime/1000000;
 
     switch (s->exp_mode) {
@@ -1974,16 +1941,16 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
         int bbsize[4];
         int count;
         count = string_to_array(s->boxborderw, bbsize, 4);
-        if(count == 1) {
+        if (count == 1) {
             s->bb_top = s->bb_right = s->bb_bottom = s->bb_left = bbsize[0];
-        } else if(count == 2) {
+        } else if (count == 2) {
             s->bb_top = s->bb_bottom = bbsize[0];
             s->bb_right = s->bb_left = bbsize[1];
-        } else if(count == 3) {
+        } else if (count == 3) {
             s->bb_top = bbsize[0];
             s->bb_right = s->bb_left = bbsize[1];
             s->bb_bottom = bbsize[2];
-        } else if(count == 4) {
+        } else if (count == 4) {
             s->bb_top = bbsize[0];
             s->bb_right = bbsize[1];
             s->bb_bottom = bbsize[2];
@@ -2018,25 +1985,25 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     x = 0;
     y = 0;
     x64 = (int)(s->x * 64.);
-    if(s->y_align == YA_FONT) {
+    if (s->y_align == YA_FONT) {
         y64 = (int)(s->y * 64. + s->face->size->metrics.ascender);
-    } else if(s->y_align == YA_BASELINE) {
+    } else if (s->y_align == YA_BASELINE) {
         y64 = (int)(s->y * 64.);
     } else {
         y64 = (int)(s->y * 64. + metrics.offset_top64);
     }
 
-    for(int l = 0; l < s->line_count; ++l) {
+    for (int l = 0; l < s->line_count; ++l) {
         TextLine *line = &s->lines[l];
         HarfbuzzData *hb = &line->hb_data;
         line->glyphs = av_mallocz(hb->glyph_count * sizeof(GlyphInfo));
 
-        for(int t = 0; t < hb->glyph_count; ++t) {
+        for (int t = 0; t < hb->glyph_count; ++t) {
             GlyphInfo *g_info = &line->glyphs[t];
             uint8_t is_tab = last_tab_idx < s->tab_count &&
                 hb->glyph_info[t].cluster == s->tab_clusters[last_tab_idx] - line->cluster_offset;
             int true_x, true_y;
-            if(is_tab) {
+            if (is_tab) {
                 ++last_tab_idx;
             }
             true_x = x + hb->glyph_pos[t].x_offset;
@@ -2054,7 +2021,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
             g_info->shift_x64 = shift_x64;
             g_info->shift_y64 = shift_y64;
 
-            if(!is_tab) {
+            if (!is_tab) {
                 x += hb->glyph_pos[t].x_advance;
             } else {
                 int size = s->blank_advance64 * s->tabsize;
@@ -2071,7 +2038,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
 //    offset_left = metrics.offset_left64 / 64;
     offset_left = 0;
     metrics.rect_x = s->x;
-    if(s->y_align == YA_BASELINE) {
+    if (s->y_align == YA_BASELINE) {
         metrics.rect_y = s->y - metrics.offset_top64 / 64;
     } else {
         metrics.rect_y = s->y;
@@ -2080,7 +2047,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     s->box_width = s->boxw == 0 ? metrics.width : s->boxw;
     s->box_height = s->boxh == 0 ? metrics.height : s->boxh;
 
-    if(!s->draw_box) {
+    if (!s->draw_box) {
         // Create a border for the clipping region to take into account subpixel
         // errors in text measurement and effects.
         int borderoffset = s->borderw ? FFMAX(s->borderw, 0) : 0;
@@ -2096,17 +2063,13 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
                     metrics.rect_x + s->box_width + s->bb_right <= 0 ||
                     metrics.rect_y + s->box_height + s->bb_bottom <= 0;
 
-    if(!is_outside) {
+    if (!is_outside) {
         /* draw box */
         if (s->draw_box) {
             rec_x = metrics.rect_x - s->bb_left;
             rec_y = metrics.rect_y - s->bb_top;
             rec_width = s->box_width + s->bb_right + s->bb_left;
             rec_height = s->box_height + s->bb_bottom + s->bb_top;
-            // av_log(s, AV_LOG_DEBUG, "rect_x: %d -> bb_left: %d\n",
-            //     metrics.rect_x, s->bb_left);
-            // av_log(s, AV_LOG_DEBUG, "Rect -> (x: %d - y: %d - dx: %d - dy: %d)\n",
-            //     rec_x, rec_y, rec_width, rec_height);
             ff_blend_rectangle(&s->dc, &boxcolor,
                 frame->data, frame->linesize, width, height,
                 rec_x, rec_y, rec_width, rec_height);
@@ -2133,7 +2096,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     }
 
     // FREE data structures
-    for(int l = 0; l < s->line_count; ++l) {
+    for (int l = 0; l < s->line_count; ++l) {
         TextLine *line = &s->lines[l];
         av_freep(&line->glyphs);
         hb_destroy(&line->hb_data);
@@ -2213,11 +2176,6 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
         draw_text(ctx, frame);
     }
-
-    // av_log(ctx, AV_LOG_DEBUG, "n:%d t:%f text_w:%d text_h:%d x:%.2f y:%.2f\n",
-    //        (int)s->var_values[VAR_N], s->var_values[VAR_T],
-    //        (int)s->var_values[VAR_TEXT_W], (int)s->var_values[VAR_TEXT_H],
-    //        s->x, s->y);
 
     return ff_filter_frame(outlink, frame);
 }

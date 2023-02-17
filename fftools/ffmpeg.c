@@ -126,6 +126,7 @@ typedef struct BenchmarkTimeStamps {
     int64_t sys_usec;
 } BenchmarkTimeStamps;
 
+static int trigger_fix_sub_duration_heartbeat(OutputStream *ost, const AVPacket *pkt);
 static BenchmarkTimeStamps get_benchmark_time_stamps(void);
 static int64_t getmaxrss(void);
 static int ifilter_has_all_input_formats(FilterGraph *fg);
@@ -796,7 +797,7 @@ static void update_video_stats(OutputStream *ost, const AVPacket *pkt, int write
 
     fprintf(vstats_file,"f_size= %6d ", pkt->size);
     /* compute pts value */
-    ti1 = pkt->dts * av_q2d(ost->mux_timebase);
+    ti1 = pkt->dts * av_q2d(pkt->time_base);
     if (ti1 < 0.01)
         ti1 = 0.01;
 
@@ -807,11 +808,12 @@ static void update_video_stats(OutputStream *ost, const AVPacket *pkt, int write
     fprintf(vstats_file, "type= %c\n", av_get_picture_type_char(ost->pict_type));
 }
 
-static void enc_stats_write(OutputStream *ost, EncStats *es,
-                            const AVFrame *frame, const AVPacket *pkt)
+void enc_stats_write(OutputStream *ost, EncStats *es,
+                     const AVFrame *frame, const AVPacket *pkt,
+                     uint64_t frame_num)
 {
     AVIOContext *io = es->io;
-    AVRational   tb = ost->enc_ctx->time_base;
+    AVRational   tb = frame ? frame->time_base : pkt->time_base;
     int64_t     pts = frame ? frame->pts : pkt->pts;
 
     AVRational  tbi = (AVRational){ 0, 1};
@@ -839,12 +841,12 @@ static void enc_stats_write(OutputStream *ost, EncStats *es,
         case ENC_STATS_PTS_TIME:        avio_printf(io, "%g",       pts * av_q2d(tb));              continue;
         case ENC_STATS_PTS_TIME_IN:     avio_printf(io, "%g",       ptsi == INT64_MAX ?
                                                                     INFINITY : ptsi * av_q2d(tbi)); continue;
+        case ENC_STATS_FRAME_NUM:       avio_printf(io, "%"PRIu64,  frame_num);                     continue;
         case ENC_STATS_FRAME_NUM_IN:    avio_printf(io, "%"PRIu64,  fd ? fd->idx : -1);             continue;
         }
 
         if (frame) {
             switch (c->type) {
-            case ENC_STATS_FRAME_NUM:   avio_printf(io, "%"PRIu64,  ost->frames_encoded);           continue;
             case ENC_STATS_SAMPLE_NUM:  avio_printf(io, "%"PRIu64,  ost->samples_encoded);          continue;
             case ENC_STATS_NB_SAMPLES:  avio_printf(io, "%d",       frame->nb_samples);             continue;
             default: av_assert0(0);
@@ -854,7 +856,6 @@ static void enc_stats_write(OutputStream *ost, EncStats *es,
             case ENC_STATS_DTS:         avio_printf(io, "%"PRId64,  pkt->dts);                      continue;
             case ENC_STATS_DTS_TIME:    avio_printf(io, "%g",       pkt->dts * av_q2d(tb));         continue;
             case ENC_STATS_PKT_SIZE:    avio_printf(io, "%d",       pkt->size);                     continue;
-            case ENC_STATS_FRAME_NUM:   avio_printf(io, "%"PRIu64,  ost->packets_encoded);          continue;
             case ENC_STATS_BITRATE: {
                 double duration = FFMAX(pkt->duration, 1) * av_q2d(tb);
                 avio_printf(io, "%g",  8.0 * pkt->size / duration);
@@ -883,7 +884,8 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
 
     if (frame) {
         if (ost->enc_stats_pre.io)
-            enc_stats_write(ost, &ost->enc_stats_pre, frame, NULL);
+            enc_stats_write(ost, &ost->enc_stats_pre, frame, NULL,
+                            ost->frames_encoded);
 
         ost->frames_encoded++;
         ost->samples_encoded += frame->nb_samples;
@@ -911,6 +913,8 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
         update_benchmark("%s_%s %d.%d", action, type_desc,
                          ost->file_index, ost->index);
 
+        pkt->time_base = enc->time_base;
+
         /* if two pass, output log on success and EOF */
         if ((ret >= 0 || ret == AVERROR_EOF) && ost->logfile && enc->stats_out)
             fprintf(ost->logfile, "%s", enc->stats_out);
@@ -929,7 +933,8 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
         if (enc->codec_type == AVMEDIA_TYPE_VIDEO)
             update_video_stats(ost, pkt, !!vstats_filename);
         if (ost->enc_stats_post.io)
-            enc_stats_write(ost, &ost->enc_stats_post, NULL, pkt);
+            enc_stats_write(ost, &ost->enc_stats_post, NULL, pkt,
+                            ost->packets_encoded);
 
         if (debug_ts) {
             av_log(ost, AV_LOG_INFO, "encoder -> type:%s "
@@ -941,7 +946,8 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
                    av_ts2str(pkt->duration), av_ts2timestr(pkt->duration, &enc->time_base));
         }
 
-        av_packet_rescale_ts(pkt, enc->time_base, ost->mux_timebase);
+        av_packet_rescale_ts(pkt, pkt->time_base, ost->mux_timebase);
+        pkt->time_base = ost->mux_timebase;
 
         if (debug_ts) {
             av_log(ost, AV_LOG_INFO, "encoder -> type:%s "
@@ -951,6 +957,13 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
                    av_ts2str(pkt->pts), av_ts2timestr(pkt->pts, &enc->time_base),
                    av_ts2str(pkt->dts), av_ts2timestr(pkt->dts, &enc->time_base),
                    av_ts2str(pkt->duration), av_ts2timestr(pkt->duration, &enc->time_base));
+        }
+
+        if ((ret = trigger_fix_sub_duration_heartbeat(ost, pkt)) < 0) {
+            av_log(NULL, AV_LOG_ERROR,
+                   "Subtitle heartbeat logic failed in %s! (%s)\n",
+                   __func__, av_err2str(ret));
+            exit_program(1);
         }
 
         ost->data_size_enc += pkt->size;
@@ -1095,17 +1108,19 @@ static void do_subtitle_out(OutputFile *of,
         }
 
         av_shrink_packet(pkt, subtitle_out_size);
-        pkt->pts  = av_rescale_q(sub->pts, AV_TIME_BASE_Q, ost->mux_timebase);
-        pkt->duration = av_rescale_q(sub->end_display_time, (AVRational){ 1, 1000 }, ost->mux_timebase);
+        pkt->time_base = ost->mux_timebase;
+        pkt->pts  = av_rescale_q(sub->pts, AV_TIME_BASE_Q, pkt->time_base);
+        pkt->duration = av_rescale_q(sub->end_display_time, (AVRational){ 1, 1000 }, pkt->time_base);
         if (enc->codec_id == AV_CODEC_ID_DVB_SUBTITLE) {
             /* XXX: the pts correction is handled here. Maybe handling
                it in the codec would be better */
             if (i == 0)
-                pkt->pts += av_rescale_q(sub->start_display_time, (AVRational){ 1, 1000 }, ost->mux_timebase);
+                pkt->pts += av_rescale_q(sub->start_display_time, (AVRational){ 1, 1000 }, pkt->time_base);
             else
-                pkt->pts += av_rescale_q(sub->end_display_time, (AVRational){ 1, 1000 }, ost->mux_timebase);
+                pkt->pts += av_rescale_q(sub->end_display_time, (AVRational){ 1, 1000 }, pkt->time_base);
         }
         pkt->dts = pkt->pts;
+
         of_output_packet(of, pkt, ost, 0);
     }
 }
@@ -1892,25 +1907,37 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
     if (av_packet_ref(opkt, pkt) < 0)
         exit_program(1);
 
+    opkt->time_base = ost->mux_timebase;
+
     if (pkt->pts != AV_NOPTS_VALUE)
-        opkt->pts = av_rescale_q(pkt->pts, ist->st->time_base, ost->mux_timebase) - ost_tb_start_time;
+        opkt->pts = av_rescale_q(pkt->pts, ist->st->time_base, opkt->time_base) - ost_tb_start_time;
 
     if (pkt->dts == AV_NOPTS_VALUE) {
-        opkt->dts = av_rescale_q(ist->dts, AV_TIME_BASE_Q, ost->mux_timebase);
+        opkt->dts = av_rescale_q(ist->dts, AV_TIME_BASE_Q, opkt->time_base);
     } else if (ost->st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
         int duration = av_get_audio_frame_duration2(ist->par, pkt->size);
         if(!duration)
             duration = ist->par->frame_size;
         opkt->dts = av_rescale_delta(ist->st->time_base, pkt->dts,
                                     (AVRational){1, ist->par->sample_rate}, duration,
-                                    &ist->filter_in_rescale_delta_last, ost->mux_timebase);
+                                    &ist->filter_in_rescale_delta_last, opkt->time_base);
         /* dts will be set immediately afterwards to what pts is now */
         opkt->pts = opkt->dts - ost_tb_start_time;
     } else
-        opkt->dts = av_rescale_q(pkt->dts, ist->st->time_base, ost->mux_timebase);
+        opkt->dts = av_rescale_q(pkt->dts, ist->st->time_base, opkt->time_base);
     opkt->dts -= ost_tb_start_time;
 
-    opkt->duration = av_rescale_q(pkt->duration, ist->st->time_base, ost->mux_timebase);
+    opkt->duration = av_rescale_q(pkt->duration, ist->st->time_base, opkt->time_base);
+
+    {
+        int ret = trigger_fix_sub_duration_heartbeat(ost, pkt);
+        if (ret < 0) {
+            av_log(NULL, AV_LOG_ERROR,
+                   "Subtitle heartbeat logic failed in %s! (%s)\n",
+                   __func__, av_err2str(ret));
+            exit_program(1);
+        }
+    }
 
     of_output_packet(of, opkt, ost, 0);
 
@@ -2088,7 +2115,7 @@ static int decode(InputStream *ist, AVCodecContext *avctx,
             fd      = (FrameData*)frame->opaque_ref->data;
             fd->pts = frame->pts;
             fd->tb  = avctx->pkt_timebase;
-            fd->idx = avctx->frame_number - 1;
+            fd->idx = avctx->frame_num - 1;
         }
 
         *got_frame = 1;
@@ -2296,11 +2323,199 @@ fail:
     return err < 0 ? err : ret;
 }
 
-static int transcode_subtitles(InputStream *ist, AVPacket *pkt, int *got_output,
-                               int *decode_failed)
+static int process_subtitle(InputStream *ist, AVSubtitle *subtitle, int *got_output)
+{
+    int ret = 0;
+    int free_sub = 1;
+
+    if (ist->fix_sub_duration) {
+        int end = 1;
+        if (ist->prev_sub.got_output) {
+            end = av_rescale(subtitle->pts - ist->prev_sub.subtitle.pts,
+                             1000, AV_TIME_BASE);
+            if (end < ist->prev_sub.subtitle.end_display_time) {
+                av_log(NULL, AV_LOG_DEBUG,
+                       "Subtitle duration reduced from %"PRId32" to %d%s\n",
+                       ist->prev_sub.subtitle.end_display_time, end,
+                       end <= 0 ? ", dropping it" : "");
+                ist->prev_sub.subtitle.end_display_time = end;
+            }
+        }
+        FFSWAP(int,        *got_output, ist->prev_sub.got_output);
+        FFSWAP(int,        ret,         ist->prev_sub.ret);
+        FFSWAP(AVSubtitle, *subtitle,   ist->prev_sub.subtitle);
+        if (end <= 0)
+            goto out;
+    }
+
+    if (!*got_output)
+        return ret;
+
+    if (ist->sub2video.frame) {
+        sub2video_update(ist, INT64_MIN, subtitle);
+    } else if (ist->nb_filters) {
+        if (!ist->sub2video.sub_queue)
+            ist->sub2video.sub_queue = av_fifo_alloc2(8, sizeof(AVSubtitle), AV_FIFO_FLAG_AUTO_GROW);
+        if (!ist->sub2video.sub_queue)
+            report_and_exit(AVERROR(ENOMEM));
+
+        ret = av_fifo_write(ist->sub2video.sub_queue, subtitle, 1);
+        if (ret < 0)
+            exit_program(1);
+        free_sub = 0;
+    }
+
+    if (!subtitle->num_rects)
+        goto out;
+
+    for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
+        if (!check_output_constraints(ist, ost) || !ost->enc_ctx
+            || ost->enc_ctx->codec_type != AVMEDIA_TYPE_SUBTITLE)
+            continue;
+
+        do_subtitle_out(output_files[ost->file_index], ost, subtitle);
+    }
+
+out:
+    if (free_sub)
+        avsubtitle_free(subtitle);
+    return ret;
+}
+
+static int copy_av_subtitle(AVSubtitle *dst, AVSubtitle *src)
+{
+    int ret = AVERROR_BUG;
+    AVSubtitle tmp = {
+        .format = src->format,
+        .start_display_time = src->start_display_time,
+        .end_display_time = src->end_display_time,
+        .num_rects = 0,
+        .rects = NULL,
+        .pts = src->pts
+    };
+
+    if (!src->num_rects)
+        goto success;
+
+    if (!(tmp.rects = av_calloc(src->num_rects, sizeof(*tmp.rects))))
+        return AVERROR(ENOMEM);
+
+    for (int i = 0; i < src->num_rects; i++) {
+        AVSubtitleRect *src_rect = src->rects[i];
+        AVSubtitleRect *dst_rect;
+
+        if (!(dst_rect = tmp.rects[i] = av_mallocz(sizeof(*tmp.rects[0])))) {
+            ret = AVERROR(ENOMEM);
+            goto cleanup;
+        }
+
+        tmp.num_rects++;
+
+        dst_rect->type      = src_rect->type;
+        dst_rect->flags     = src_rect->flags;
+
+        dst_rect->x         = src_rect->x;
+        dst_rect->y         = src_rect->y;
+        dst_rect->w         = src_rect->w;
+        dst_rect->h         = src_rect->h;
+        dst_rect->nb_colors = src_rect->nb_colors;
+
+        if (src_rect->text)
+            if (!(dst_rect->text = av_strdup(src_rect->text))) {
+                ret = AVERROR(ENOMEM);
+                goto cleanup;
+            }
+
+        if (src_rect->ass)
+            if (!(dst_rect->ass = av_strdup(src_rect->ass))) {
+                ret = AVERROR(ENOMEM);
+                goto cleanup;
+            }
+
+        for (int j = 0; j < 4; j++) {
+            // SUBTITLE_BITMAP images are special in the sense that they
+            // are like PAL8 images. first pointer to data, second to
+            // palette. This makes the size calculation match this.
+            size_t buf_size = src_rect->type == SUBTITLE_BITMAP && j == 1 ?
+                              AVPALETTE_SIZE :
+                              src_rect->h * src_rect->linesize[j];
+
+            if (!src_rect->data[j])
+                continue;
+
+            if (!(dst_rect->data[j] = av_memdup(src_rect->data[j], buf_size))) {
+                ret = AVERROR(ENOMEM);
+                goto cleanup;
+            }
+            dst_rect->linesize[j] = src_rect->linesize[j];
+        }
+    }
+
+success:
+    *dst = tmp;
+
+    return 0;
+
+cleanup:
+    avsubtitle_free(&tmp);
+
+    return ret;
+}
+
+static int fix_sub_duration_heartbeat(InputStream *ist, int64_t signal_pts)
+{
+    int ret = AVERROR_BUG;
+    int got_output = 1;
+    AVSubtitle *prev_subtitle = &ist->prev_sub.subtitle;
+    AVSubtitle subtitle;
+
+    if (!ist->fix_sub_duration || !prev_subtitle->num_rects ||
+        signal_pts <= prev_subtitle->pts)
+        return 0;
+
+    if ((ret = copy_av_subtitle(&subtitle, prev_subtitle)) < 0)
+        return ret;
+
+    subtitle.pts = signal_pts;
+
+    return process_subtitle(ist, &subtitle, &got_output);
+}
+
+static int trigger_fix_sub_duration_heartbeat(OutputStream *ost, const AVPacket *pkt)
+{
+    OutputFile *of = output_files[ost->file_index];
+    int64_t signal_pts = av_rescale_q(pkt->pts, pkt->time_base,
+                                      AV_TIME_BASE_Q);
+
+    if (!ost->fix_sub_duration_heartbeat || !(pkt->flags & AV_PKT_FLAG_KEY))
+        // we are only interested in heartbeats on streams configured, and
+        // only on random access points.
+        return 0;
+
+    for (int i = 0; i < of->nb_streams; i++) {
+        OutputStream *iter_ost = of->streams[i];
+        InputStream  *ist      = iter_ost->ist;
+        int ret = AVERROR_BUG;
+
+        if (iter_ost == ost || !ist || !ist->decoding_needed ||
+            ist->dec_ctx->codec_type != AVMEDIA_TYPE_SUBTITLE)
+            // We wish to skip the stream that causes the heartbeat,
+            // output streams without an input stream, streams not decoded
+            // (as fix_sub_duration is only done for decoded subtitles) as
+            // well as non-subtitle streams.
+            continue;
+
+        if ((ret = fix_sub_duration_heartbeat(ist, signal_pts)) < 0)
+            return ret;
+    }
+
+    return 0;
+}
+
+static int transcode_subtitles(InputStream *ist, const AVPacket *pkt,
+                               int *got_output, int *decode_failed)
 {
     AVSubtitle subtitle;
-    int free_sub = 1;
     int ret = avcodec_decode_subtitle2(ist->dec_ctx,
                                        &subtitle, got_output, pkt);
 
@@ -2313,60 +2528,9 @@ static int transcode_subtitles(InputStream *ist, AVPacket *pkt, int *got_output,
         return ret;
     }
 
-    if (ist->fix_sub_duration) {
-        int end = 1;
-        if (ist->prev_sub.got_output) {
-            end = av_rescale(subtitle.pts - ist->prev_sub.subtitle.pts,
-                             1000, AV_TIME_BASE);
-            if (end < ist->prev_sub.subtitle.end_display_time) {
-                av_log(NULL, AV_LOG_DEBUG,
-                       "Subtitle duration reduced from %"PRId32" to %d%s\n",
-                       ist->prev_sub.subtitle.end_display_time, end,
-                       end <= 0 ? ", dropping it" : "");
-                ist->prev_sub.subtitle.end_display_time = end;
-            }
-        }
-        FFSWAP(int,        *got_output, ist->prev_sub.got_output);
-        FFSWAP(int,        ret,         ist->prev_sub.ret);
-        FFSWAP(AVSubtitle, subtitle,    ist->prev_sub.subtitle);
-        if (end <= 0)
-            goto out;
-    }
-
-    if (!*got_output)
-        return ret;
-
-    if (ist->sub2video.frame) {
-        sub2video_update(ist, INT64_MIN, &subtitle);
-    } else if (ist->nb_filters) {
-        if (!ist->sub2video.sub_queue)
-            ist->sub2video.sub_queue = av_fifo_alloc2(8, sizeof(AVSubtitle), AV_FIFO_FLAG_AUTO_GROW);
-        if (!ist->sub2video.sub_queue)
-            report_and_exit(AVERROR(ENOMEM));
-
-        ret = av_fifo_write(ist->sub2video.sub_queue, &subtitle, 1);
-        if (ret < 0)
-            exit_program(1);
-        free_sub = 0;
-    }
-
-    if (!subtitle.num_rects)
-        goto out;
-
     ist->frames_decoded++;
 
-    for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
-        if (!check_output_constraints(ist, ost) || !ost->enc_ctx
-            || ost->enc_ctx->codec_type != AVMEDIA_TYPE_SUBTITLE)
-            continue;
-
-        do_subtitle_out(output_files[ost->file_index], ost, &subtitle);
-    }
-
-out:
-    if (free_sub)
-        avsubtitle_free(&subtitle);
-    return ret;
+    return process_subtitle(ist, &subtitle, got_output);
 }
 
 static int send_filter_eof(InputStream *ist)
@@ -2640,11 +2804,6 @@ static int init_input_stream(InputStream *ist, char *error, int error_len)
 
         ist->dec_ctx->opaque                = ist;
         ist->dec_ctx->get_format            = get_format;
-#if LIBAVCODEC_VERSION_MAJOR < 60
-        AV_NOWARN_DEPRECATED({
-        ist->dec_ctx->thread_safe_callbacks = 1;
-        })
-#endif
 
         if (ist->dec_ctx->codec_id == AV_CODEC_ID_DVB_SUBTITLE &&
            (ist->decoding_needed & DECODING_FOR_OST)) {

@@ -224,6 +224,8 @@ typedef struct OptionsContext {
     int        nb_reinit_filters;
     SpecifierOpt *fix_sub_duration;
     int        nb_fix_sub_duration;
+    SpecifierOpt *fix_sub_duration_heartbeat;
+    int        nb_fix_sub_duration_heartbeat;
     SpecifierOpt *canvas_sizes;
     int        nb_canvas_sizes;
     SpecifierOpt *pass;
@@ -256,10 +258,14 @@ typedef struct OptionsContext {
     int        nb_enc_stats_pre;
     SpecifierOpt *enc_stats_post;
     int        nb_enc_stats_post;
+    SpecifierOpt *mux_stats;
+    int        nb_mux_stats;
     SpecifierOpt *enc_stats_pre_fmt;
     int        nb_enc_stats_pre_fmt;
     SpecifierOpt *enc_stats_post_fmt;
     int        nb_enc_stats_post_fmt;
+    SpecifierOpt *mux_stats_fmt;
+    int        nb_mux_stats_fmt;
 } OptionsContext;
 
 typedef struct InputFilter {
@@ -675,6 +681,12 @@ typedef struct OutputStream {
 
     EncStats enc_stats_pre;
     EncStats enc_stats_post;
+
+    /*
+     * bool on whether this stream should be utilized for splitting
+     * subtitles utilizing fix_sub_duration at random access points.
+     */
+    unsigned int fix_sub_duration_heartbeat;
 } OutputStream;
 
 typedef struct OutputFile {
@@ -780,6 +792,10 @@ void sub2video_update(InputStream *ist, int64_t heartbeat_pts, AVSubtitle *sub);
 int ifilter_parameters_from_frame(InputFilter *ifilter, const AVFrame *frame);
 
 int ffmpeg_parse_options(int argc, char **argv);
+
+void enc_stats_write(OutputStream *ost, EncStats *es,
+                     const AVFrame *frame, const AVPacket *pkt,
+                     uint64_t frame_num);
 
 HWDevice *hw_device_get_by_name(const char *name);
 int hw_device_init_from_string(const char *arg, HWDevice **dev);

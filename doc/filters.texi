@@ -12102,6 +12102,7 @@ The default value of @var{borderw} is 0.
 @item bordercolor
 Set the color to be used for drawing border around text. For the syntax of this
 option, check the @ref{color syntax,,"Color" section in the ffmpeg-utils manual,ffmpeg-utils}.
+
 The default value of @var{bordercolor} is "black".
 
 @item expansion
@@ -12198,6 +12199,10 @@ values. The default value for both is "0".
 @item start_number
 The starting frame number for the n/frame_num variable. The default value
 is "0".
+
+@item tabsize
+The size in number of spaces to use for rendering the tab.
+Default value is 4.
 
 @item timecode
 Set the initial timecode representation in "hh:mm:ss[:;.]ff"

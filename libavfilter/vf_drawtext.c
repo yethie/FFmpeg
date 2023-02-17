@@ -352,7 +352,7 @@ static const AVOption drawtext_options[]= {
     {"shadowcolor",    "set shadow color",      OFFSET(shadowcolor.rgba),   AV_OPT_TYPE_COLOR,  {.str="black"}, 0, 0, TFLAGS},
     {"box",            "set box",               OFFSET(draw_box),           AV_OPT_TYPE_BOOL,   {.i64=0},     0, 1, TFLAGS},
     {"boxborderw",     "set box borders width", OFFSET(boxborderw),         AV_OPT_TYPE_STRING, {.str="0"},   0, 0, TFLAGS},
-    {"line_spacing",   "set line spacing in pixels", OFFSET(line_spacing), AV_OPT_TYPE_INT,    {.i64=-1},    INT_MIN, INT_MAX, TFLAGS},
+    {"line_spacing",   "set line spacing in pixels", OFFSET(line_spacing),  AV_OPT_TYPE_INT,    {.i64=-1},    INT_MIN, INT_MAX, TFLAGS},
     {"fontsize",       "set font size",         OFFSET(fontsize_expr),      AV_OPT_TYPE_STRING, {.str=NULL},  0, 0, TFLAGS},
     {"text_align",     "set text alignment",    OFFSET(text_align),         AV_OPT_TYPE_STRING, {.str="TL"},  0, 0, TFLAGS},
     {"x",              "set x expression",      OFFSET(x_expr),             AV_OPT_TYPE_STRING, {.str="0"},   0, 0, TFLAGS},
@@ -1835,7 +1835,6 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     int x = 0, y = 0, ret;
     int shift_x64, shift_y64;
     int x64, y64;
-    int offset_left = 0;
     Glyph *glyph = NULL;
 
     time_t now = time(0);
@@ -2034,9 +2033,6 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
         x = 0;
     }
 
-// TODO (LEFT OFFSET)
-//    offset_left = metrics.offset_left64 / 64;
-    offset_left = 0;
     metrics.rect_x = s->x;
     if (s->y_align == YA_BASELINE) {
         metrics.rect_y = s->y - metrics.offset_top64 / 64;
@@ -2077,19 +2073,19 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
 
         if (s->shadowx || s->shadowy) {
             if ((ret = draw_glyphs(s, frame, &shadowcolor, &metrics,
-                    s->shadowx - offset_left, s->shadowy, s->borderw)) < 0) {
+                    s->shadowx, s->shadowy, s->borderw)) < 0) {
                 return ret;
             }
         }
 
         if (s->borderw) {
             if ((ret = draw_glyphs(s, frame, &bordercolor, &metrics,
-                    -offset_left, 0, s->borderw)) < 0) {
+                    0, 0, s->borderw)) < 0) {
                 return ret;
             }
         }
 
-        if ((ret = draw_glyphs(s, frame, &fontcolor, &metrics, -offset_left,
+        if ((ret = draw_glyphs(s, frame, &fontcolor, &metrics, 0,
                 0, 0)) < 0) {
             return ret;
         }

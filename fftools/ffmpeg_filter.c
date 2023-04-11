@@ -296,7 +296,6 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
 
     ist->discard         = 0;
     ist->decoding_needed |= DECODING_FOR_FILTER;
-    ist->processing_needed = 1;
     ist->st->discard = AVDISCARD_NONE;
 
     ifilter = ALLOC_ARRAY_ELEM(fg->inputs, fg->nb_inputs);
@@ -362,7 +361,7 @@ fail:
 
 static int filter_opt_apply(AVFilterContext *f, const char *key, const char *val)
 {
-    const AVOption *o;
+    const AVOption *o = NULL;
     int ret;
 
     ret = av_opt_set(f, key, val, AV_OPT_SEARCH_CHILDREN);
@@ -440,10 +439,14 @@ static int graph_opts_apply(AVFilterGraphSegment *seg)
 }
 
 static int graph_parse(AVFilterGraph *graph, const char *desc,
-                       AVFilterInOut **inputs, AVFilterInOut **outputs)
+                       AVFilterInOut **inputs, AVFilterInOut **outputs,
+                       AVBufferRef *hw_device)
 {
     AVFilterGraphSegment *seg;
     int ret;
+
+    *inputs  = NULL;
+    *outputs = NULL;
 
     ret = avfilter_graph_segment_parse(graph, desc, 0, &seg);
     if (ret < 0)
@@ -452,6 +455,20 @@ static int graph_parse(AVFilterGraph *graph, const char *desc,
     ret = avfilter_graph_segment_create_filters(seg, 0);
     if (ret < 0)
         goto fail;
+
+    if (hw_device) {
+        for (int i = 0; i < graph->nb_filters; i++) {
+            AVFilterContext *f = graph->filters[i];
+
+            if (!(f->filter->flags & AVFILTER_FLAG_HWDEVICE))
+                continue;
+            f->hw_device_ctx = av_buffer_ref(hw_device);
+            if (!f->hw_device_ctx) {
+                ret = AVERROR(ENOMEM);
+                goto fail;
+            }
+        }
+    }
 
     ret = graph_opts_apply(seg);
     if (ret < 0)
@@ -477,7 +494,7 @@ int init_complex_filtergraph(FilterGraph *fg)
         return AVERROR(ENOMEM);
     graph->nb_threads = 1;
 
-    ret = graph_parse(graph, fg->graph_desc, &inputs, &outputs);
+    ret = graph_parse(graph, fg->graph_desc, &inputs, &outputs, NULL);
     if (ret < 0)
         goto fail;
 
@@ -1111,6 +1128,7 @@ static int graph_is_meta(AVFilterGraph *graph)
 
 int configure_filtergraph(FilterGraph *fg)
 {
+    AVBufferRef *hw_device;
     AVFilterInOut *inputs, *outputs, *cur;
     int ret, i, simple = filtergraph_is_simple(fg);
     const char *graph_desc = simple ? fg->outputs[0]->ost->avfilter :
@@ -1154,11 +1172,9 @@ int configure_filtergraph(FilterGraph *fg)
         fg->graph->nb_threads = filter_complex_nbthreads;
     }
 
-    if ((ret = graph_parse(fg->graph, graph_desc, &inputs, &outputs)) < 0)
-        goto fail;
+    hw_device = hw_device_for_filter();
 
-    ret = hw_device_setup_for_filter(fg);
-    if (ret < 0)
+    if ((ret = graph_parse(fg->graph, graph_desc, &inputs, &outputs, hw_device)) < 0)
         goto fail;
 
     if (simple && (!inputs || inputs->next || !outputs || outputs->next)) {
@@ -1225,14 +1241,6 @@ int configure_filtergraph(FilterGraph *fg)
     }
 
     fg->reconfiguration = 1;
-
-    for (i = 0; i < fg->nb_outputs; i++) {
-        OutputStream *ost = fg->outputs[i]->ost;
-        if (ost->enc_ctx->codec_type == AVMEDIA_TYPE_AUDIO &&
-            !(ost->enc_ctx->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE))
-            av_buffersink_set_frame_size(ost->filter->filter,
-                                         ost->enc_ctx->frame_size);
-    }
 
     for (i = 0; i < fg->nb_inputs; i++) {
         AVFrame *tmp;

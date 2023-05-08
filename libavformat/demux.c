@@ -668,6 +668,11 @@ static void compute_frame_duration(AVFormatContext *s, int *pnum, int *pden,
         if (st->r_frame_rate.num && (!pc || !codec_framerate.num)) {
             *pnum = st->r_frame_rate.den;
             *pden = st->r_frame_rate.num;
+        } else if ((s->iformat->flags & AVFMT_NOTIMESTAMPS) &&
+                   !codec_framerate.num &&
+                   st->avg_frame_rate.num && st->avg_frame_rate.den) {
+            *pnum = st->avg_frame_rate.den;
+            *pden = st->avg_frame_rate.num;
         } else if (st->time_base.num * 1000LL > st->time_base.den) {
             *pnum = st->time_base.num;
             *pden = st->time_base.den;
@@ -2569,7 +2574,7 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 extract_extradata_check(st))
                 break;
             if (sti->first_dts == AV_NOPTS_VALUE &&
-                !(ic->iformat->flags & AVFMT_NOTIMESTAMPS) &&
+                (!(ic->iformat->flags & AVFMT_NOTIMESTAMPS) || sti->need_parsing == AVSTREAM_PARSE_FULL_RAW) &&
                 sti->codec_info_nb_frames < ((st->disposition & AV_DISPOSITION_ATTACHED_PIC) ? 1 : ic->max_ts_probe) &&
                 (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO ||
                  st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO))
@@ -2873,6 +2878,7 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                     st->r_frame_rate.den = st->time_base.num;
                 }
             }
+            st->codecpar->framerate = avctx->framerate;
             if (sti->display_aspect_ratio.num && sti->display_aspect_ratio.den) {
                 AVRational hw_ratio = { avctx->height, avctx->width };
                 st->sample_aspect_ratio = av_mul_q(sti->display_aspect_ratio,

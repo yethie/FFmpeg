@@ -192,6 +192,21 @@ int ff_encode_get_frame(AVCodecContext *avctx, AVFrame *frame)
 
     av_frame_move_ref(frame, avci->buffer_frame);
 
+#if FF_API_FRAME_KEY
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (frame->key_frame)
+        frame->flags |= AV_FRAME_FLAG_KEY;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
+#if FF_API_INTERLACED_FRAME
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (frame->interlaced_frame)
+        frame->flags |= AV_FRAME_FLAG_INTERLACED;
+    if (frame->top_field_first)
+        frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
+
     return 0;
 }
 
@@ -456,13 +471,6 @@ static int encode_send_frame_internal(AVCodecContext *avctx, const AVFrame *src)
         return ret;
 
 finish:
-
-#if FF_API_PKT_DURATION
-FF_DISABLE_DEPRECATION_WARNINGS
-    if (dst->pkt_duration && dst->pkt_duration != dst->duration)
-        dst->duration = dst->pkt_duration;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
 
     if (avctx->codec->type == AVMEDIA_TYPE_VIDEO) {
         ret = encode_generate_icc_profile(avctx, dst);

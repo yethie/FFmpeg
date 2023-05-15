@@ -203,6 +203,7 @@ static av_cold void uninit(AVFilterContext *ctx)
     av_frame_free(&tinterlace->next);
     av_freep(&tinterlace->black_data[0][0]);
     av_freep(&tinterlace->black_data[1][0]);
+    ff_ccfifo_uninit(&tinterlace->cc_fifo);
 }
 
 static int config_out_props(AVFilterLink *outlink)
@@ -211,7 +212,7 @@ static int config_out_props(AVFilterLink *outlink)
     AVFilterLink *inlink = outlink->src->inputs[0];
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(outlink->format);
     TInterlaceContext *tinterlace = ctx->priv;
-    int i;
+    int ret, i;
 
     tinterlace->vsub = desc->log2_chroma_h;
     outlink->w = inlink->w;
@@ -223,7 +224,6 @@ static int config_out_props(AVFilterLink *outlink)
 
     if (tinterlace->mode == MODE_PAD) {
         uint8_t black[4] = { 0, 0, 0, 16 };
-        int ret;
         ff_draw_init(&tinterlace->draw, outlink->format, 0);
         ff_draw_color(&tinterlace->draw, &tinterlace->color, black);
         /* limited range */
@@ -289,6 +289,12 @@ static int config_out_props(AVFilterLink *outlink)
 #if ARCH_X86
         ff_tinterlace_init_x86(tinterlace);
 #endif
+    }
+
+    ret = ff_ccfifo_init(&tinterlace->cc_fifo, outlink->frame_rate, ctx);
+    if (ret < 0) {
+        av_log(ctx, AV_LOG_ERROR, "Failure to setup CC FIFO queue\n");
+        return ret;
     }
 
     av_log(ctx, AV_LOG_VERBOSE, "mode:%d filter:%s h:%d -> h:%d\n", tinterlace->mode,
@@ -375,6 +381,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
     tinterlace->cur  = tinterlace->next;
     tinterlace->next = picref;
 
+    ff_ccfifo_extract(&tinterlace->cc_fifo, picref);
+
     cur = tinterlace->cur;
     next = tinterlace->next;
     /* we need at least two frames */
@@ -456,6 +464,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             if (!out)
                 return AVERROR(ENOMEM);
             out->pts /= 2;  // adjust pts to new framerate
+            ff_ccfifo_inject(&tinterlace->cc_fifo, out);
             ret = ff_filter_frame(outlink, out);
             return ret;
         }
@@ -505,6 +514,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             out->pts = cur->pts*2;
 
         out->pts = av_rescale_q(out->pts, tinterlace->preout_time_base, outlink->time_base);
+        ff_ccfifo_inject(&tinterlace->cc_fifo, out);
         if ((ret = ff_filter_frame(outlink, out)) < 0)
             return ret;
 
@@ -549,6 +559,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
     out->pts = av_rescale_q(out->pts, tinterlace->preout_time_base, outlink->time_base);
     out->duration = av_rescale_q(1, av_inv_q(outlink->frame_rate), outlink->time_base);
+    ff_ccfifo_inject(&tinterlace->cc_fifo, out);
     ret = ff_filter_frame(outlink, out);
 
     return ret;

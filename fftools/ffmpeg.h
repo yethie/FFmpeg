@@ -279,19 +279,8 @@ typedef struct OptionsContext {
 
 typedef struct InputFilter {
     AVFilterContext    *filter;
-    struct InputStream *ist;
     struct FilterGraph *graph;
     uint8_t            *name;
-    enum AVMediaType    type;   // AVMEDIA_TYPE_SUBTITLE for sub2video
-
-    // parameters configured for this input
-    int format;
-
-    int width, height;
-    AVRational sample_aspect_ratio;
-
-    int sample_rate;
-    AVChannelLayout ch_layout;
 } InputFilter;
 
 typedef struct OutputFilter {
@@ -372,10 +361,6 @@ typedef struct InputStream {
 
     int64_t filter_in_rescale_delta_last;
 
-    // when forcing constant input framerate through -r,
-    // this contains the pts that will be given to the next decoded frame
-    int64_t cfr_next_pts;
-
     int64_t nb_samples; /* number of samples in the last decoded audio frame before looping */
 
     AVDictionary *decoder_opts;
@@ -428,8 +413,7 @@ typedef struct InputStream {
     // number of frames/samples retrieved from the decoder
     uint64_t frames_decoded;
     uint64_t samples_decoded;
-
-    int got_output;
+    uint64_t decode_errors;
 } InputStream;
 
 typedef struct LastFrameDuration {
@@ -827,6 +811,17 @@ int hwaccel_decode_init(AVCodecContext *avctx);
 
 int dec_open(InputStream *ist);
 
+/**
+ * Submit a packet for decoding
+ *
+ * When pkt==NULL and no_eof=0, there will be no more input. Flush decoders and
+ * mark all downstreams as finished.
+ *
+ * When pkt==NULL and no_eof=1, the stream was reset (e.g. after a seek). Flush
+ * decoders and await further input.
+ */
+int dec_packet(InputStream *ist, const AVPacket *pkt, int no_eof);
+
 int enc_alloc(Encoder **penc, const AVCodec *codec);
 void enc_free(Encoder **penc);
 
@@ -883,8 +878,13 @@ void ifile_close(InputFile **f);
  */
 int ifile_get_packet(InputFile *f, AVPacket **pkt);
 
-void ist_output_add(InputStream *ist, OutputStream *ost);
-void ist_filter_add(InputStream *ist, InputFilter *ifilter, int is_simple);
+int ist_output_add(InputStream *ist, OutputStream *ost);
+int ist_filter_add(InputStream *ist, InputFilter *ifilter, int is_simple);
+
+/**
+ * Find an unused input stream of given type.
+ */
+InputStream *ist_find_unused(enum AVMediaType type);
 
 /* iterate over all input streams in all input files;
  * pass NULL to start iteration */
@@ -896,6 +896,7 @@ OutputStream *ost_iter(OutputStream *prev);
 
 void close_output_stream(OutputStream *ost);
 int trigger_fix_sub_duration_heartbeat(OutputStream *ost, const AVPacket *pkt);
+int process_subtitle(InputStream *ist, AVSubtitle *subtitle, int *got_output);
 void update_benchmark(const char *fmt, ...);
 
 /**

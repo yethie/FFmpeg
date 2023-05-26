@@ -3316,6 +3316,7 @@ Available keys for each channel are:
 @var{Number_of_NaNs}
 @var{Number_of_denormals}
 @var{Peak_count}
+@var{Abs_Peak_count}
 @var{Peak_level}
 @var{RMS_difference}
 @var{RMS_peak}
@@ -3340,6 +3341,7 @@ and for @code{Overall}:
 @var{Number_of_denormals}
 @var{Number_of_samples}
 @var{Peak_count}
+@var{Abs_Peak_count}
 @var{Peak_level}
 @var{RMS_difference}
 @var{RMS_level}
@@ -3432,6 +3434,10 @@ number of samples
 @item Peak_count
 number of occasions (not the number of samples) that the signal attained either
 @var{Min_level} or @var{Max_level}
+
+@item Abs_Peak_count
+number of occasions that the absolute samples taken from the signal attained
+max absolute value of @var{Min_level} and @var{Max_level}
 
 @item Peak_level
 standard peak level measured in dBFS
@@ -14710,15 +14716,33 @@ Set video output size. Default is @var{hd720}.
 Set video opacity. Default is @var{0.9}. Allowed range is from @var{0} to @var{1}.
 
 @item mode, m
-Set output mode, can be @var{full} or @var{compact} or @var{nozero}.
-In @var{compact} mode only filters with some queued frames have displayed stats.
-In @var{nozero} mode only non-zero stats values are displayed.
+Set output mode flags.
+
+Available values for flags are:
+@table @samp
+@item full
+No any filtering. Default.
+@item compact
+Show only filters with queued frames.
+@item nozero
+Show only filters with non-zero stats.
+@item noeof
+Show only filters with non-eof stat.
+@item nodisabled
+Show only filters that are enabled in timeline.
+@end table
 
 @item flags, f
 Set flags which enable which stats are shown in video.
 
 Available values for flags are:
 @table @samp
+@item none
+All flags turned off.
+
+@item all
+All flags turned on.
+
 @item queue
 Display number of queued frames in each link.
 
@@ -14766,6 +14790,9 @@ Display number of samples given out from filter.
 
 @item sample_count_delta
 Display delta number of samples between above two values.
+
+@item disabled
+Show the timeline filter status.
 @end table
 
 @item rate, r
@@ -16391,10 +16418,11 @@ logarithmic scale between @code{0.0} and @code{100.0}. Default to @code{5.5}
 and @code{10.0}, respectively. Setting either to a negative value disables
 this functionality.
 
-@item overshoot
-Peak smoothing overshoot margin, between @code{0.0} and @code{1.0}. Provides a
-safety margin to prevent clipping as a result of peak smoothing. Defaults to
-@code{0.05}, corresponding to a margin of 5%.
+@item percentile
+Which percentile of the frame brightness histogram to use as the source peak
+for tone-mapping. Defaults to @code{99.995}, a fairly conservative value.
+Setting this to @code{100.0} disables frame histogram measurement and instead
+uses the true peak brightness for tone-mapping.
 @end table
 
 @subsubsection Tone mapping
@@ -16403,37 +16431,36 @@ gamut-mapping when dealing with mismatches between wide-gamut or HDR content.
 In general, libplacebo relies on accurate source tagging and mastering display
 gamut information to produce the best results.
 @table @option
-@item intent
-Rendering intent to use when adapting between different primary color gamuts
-(after tone-mapping).
-@table @samp
-@item perceptual
-Perceptual gamut mapping. Currently equivalent to relative colorimetric.
-@item relative
-Relative colorimetric. This is the default.
-@item absolute
-Absolute colorimetric.
-@item saturation
-Saturation mapping. Forcibly stretches the source gamut to the target gamut.
-@end table
-
 @item gamut_mode
 How to handle out-of-gamut colors that can occur as a result of colorimetric
 gamut mapping.
 @table @samp
 @item clip
-Do nothing, simply clip out-of-range colors to the RGB volume. This is the
-default.
-@item warn
-Highlight out-of-gamut pixels (by coloring them pink).
-@item darken
-Linearly reduces content brightness to preserves saturated details, followed by
-clipping the remaining out-of-gamut colors. As the name implies, this makes
-everything darker, but provides a good balance between preserving details and
-colors.
+Do nothing, simply clip out-of-range colors to the RGB volume. Low quality but
+extremely fast.
+@item perceptual
+Perceptually soft-clip colors to the gamut volume. This is the default.
+@item relative
+Relative colorimetric hard-clip. Similar to @code{perceptual} but without
+the soft knee.
+@item saturation
+Saturation mapping, maps primaries directly to primaries in RGB space.
+Not recommended except for artificial computer graphics for which a bright,
+saturated display is desired.
+@item absolute
+Absolute colorimetric hard-clip. Performs no adjustment of the white point.
 @item desaturate
 Hard-desaturates out-of-gamut colors towards white, while preserving the
-luminance. Has a tendency to shift colors.
+luminance. Has a tendency to distort the visual appearance of bright objects.
+@item darken
+Linearly reduces content brightness to preserves saturated details, followed by
+clipping the remaining out-of-gamut colors.
+@item warn
+Highlight out-of-gamut pixels (by inverting/marking them).
+@item linear
+Linearly reduces chromaticity of the entire image to make it fit within the
+target color volume. Be careful when using this on BT.2020 sources without
+proper mastering metadata, as doing so will lead to excessive desaturation.
 @end table
 
 @item tonemapping
@@ -16512,42 +16539,20 @@ For tunable tone mapping functions, this parameter can be used to fine-tune the
 curve behavior. Refer to the documentation of @code{tonemapping}. The default
 value of @code{0.0} is replaced by the curve's preferred default setting.
 
-@item tonemapping_mode
-This option determines how the tone mapping function specified by
-@code{tonemapping} is applied to the colors in a scene. Possible values are:
-@table @samp
-@item auto
-Automatic selection based on internal heuristics. This is the default.
-@item rgb
-Apply the function per-channel in the RGB colorspace.
-Per-channel tone-mapping in RGB. Guarantees no clipping and heavily desaturates
-the output, but distorts the colors quite significantly. Very similar to the
-"Hollywood" look and feel.
-@item max
-Tone-mapping is performed on the brightest component found in the signal. Good
-at preserving details in highlights, but has a tendency to crush blacks.
-@item hybrid
-Tone-map per-channel for highlights and linearly (luma-based) for
-midtones/shadows, based on a fixed gamma @code{2.4} coefficient curve.
-@item luma
-Tone-map linearly on the luma component (CIE Y), and adjust (desaturate) the
-chromaticities to compensate using a simple constant factor. This is
-essentially the mode used in ITU-R BT.2446 method A.
-@end table
-
 @item inverse_tonemapping
 If enabled, this filter will also attempt stretching SDR signals to fill HDR
 output color volumes. Disabled by default.
-
-@item tonemapping_crosstalk
-Extra tone-mapping crosstalk factor, between @code{0.0} and @code{0.3}. This
-can help reduce issues tone-mapping certain bright spectral colors. Defaults to
-@code{0.04}.
 
 @item tonemapping_lut_size
 Size of the tone-mapping LUT, between @code{2} and @code{1024}. Defaults to
 @code{256}. Note that this figure is squared when combined with
 @code{peak_detect}.
+
+@item hybrid_mix
+If nonzero, this much of the upper range of the tone-mapped result is smoothly
+mixed with a per-channel (LMS) tone-mapped version. Helps avoid unnatural
+blown-out highlights when tone-mapping very bright, strongly saturated colors.
+Defaults to @code{0.2}.
 @end table
 
 @subsubsection Dithering
@@ -22512,6 +22517,13 @@ Set subtitles stream index. @code{subtitles} filter only.
 @item force_style
 Override default style or script info parameters of the subtitles. It accepts a
 string containing ASS style format @code{KEY=VALUE} couples separated by ",".
+
+@item wrap_unicode
+Break lines according to the Unicode Line Breaking Algorithm. Availability requires
+at least libass release 0.17.0 (or LIBASS_VERSION 0x01600010), @emph{and} libass must
+have been built with libunibreak.
+
+The option is enabled by default except for native ASS.
 @end table
 
 If the first key is not specified, it is assumed that the first value
@@ -25204,6 +25216,10 @@ Set one of available transition effects:
 @item zoomin
 @item fadefast
 @item fadeslow
+@item hlwind
+@item hrwind
+@item vuwind
+@item vdwind
 @end table
 Default transition effect is fade.
 

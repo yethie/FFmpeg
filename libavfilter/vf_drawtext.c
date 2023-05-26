@@ -21,26 +21,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/*
- * Changelog - 2023
- *
- * - This filter now depends on libharfbuzz for text shaping.
- * - Glyphs position is now accurate to 1/4 pixel in both directions
- * - The size of the background box can now be forced with the boxw
- *   and boxh parameters
- * - Text can be aligned horizontally (top, middle, bottom) and vertically
- *   (left, center, right) relative to the background box
- * - The default line height is now the one defined in the font
- * - The new y_align parameter specifies if the user provided y value is
- *   referred to the top of the text, to the font baseline or to the
- *   top of the font.
- * - The boxborderw parameter can now contain a different value for each border
- *   (e.g. boxborderw=top|right|bottom|left)
- * - Many filter parameters are now supported as commands.
- * - The following new variables can be used in the x and y expressions:
- *   font_a, font_d, top_a, bottom_d
- */
-
 /**
  * @file
  * drawtext filter, based on the original vhook/drawtext.c
@@ -343,6 +323,7 @@ typedef struct DrawTextContext {
     uint32_t *tab_clusters;         ///< the position of tab characters in the text
     int tab_count;                  ///< the number of tab characters
     int blank_advance64;            ///< the size of the space character
+    int tab_warning_printed;        ///< ensure the tab warning to be printed only once
 } DrawTextContext;
 
 #define OFFSET(x) offsetof(DrawTextContext, x)
@@ -360,7 +341,7 @@ static const AVOption drawtext_options[]= {
     {"shadowcolor",    "set shadow color",      OFFSET(shadowcolor.rgba),   AV_OPT_TYPE_COLOR,  {.str="black"}, 0, 0, TFLAGS},
     {"box",            "set box",               OFFSET(draw_box),           AV_OPT_TYPE_BOOL,   {.i64=0},     0, 1, TFLAGS},
     {"boxborderw",     "set box borders width", OFFSET(boxborderw),         AV_OPT_TYPE_STRING, {.str="0"},   0, 0, TFLAGS},
-    {"line_spacing",   "set line spacing in pixels", OFFSET(line_spacing),  AV_OPT_TYPE_INT,    {.i64=-1},    INT_MIN, INT_MAX, TFLAGS},
+    {"line_spacing",   "set line spacing in pixels", OFFSET(line_spacing),  AV_OPT_TYPE_INT,    {.i64=0},     INT_MIN, INT_MAX, TFLAGS},
     {"fontsize",       "set font size",         OFFSET(fontsize_expr),      AV_OPT_TYPE_STRING, {.str=NULL},  0, 0, TFLAGS},
     {"text_align",     "set text alignment",    OFFSET(text_align),         AV_OPT_TYPE_STRING, {.str="TL"},  0, 0, TFLAGS},
     {"x",              "set x expression",      OFFSET(x_expr),             AV_OPT_TYPE_STRING, {.str="0"},   0, 0, TFLAGS},
@@ -434,25 +415,6 @@ static const struct ft_error {
 #include FT_ERRORS_H
 
 #define FT_ERRMSG(e) ft_errors[e].err_msg
-
-
-// Loads and (optionally) renders a glyph
-static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code,
-     int8_t shift_x64, int8_t shift_y64);
-
-// Shapes a line of text using libharfbuzz
-static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text, int textLen);
-
-// Performs text measurements
-static int measure_text(AVFilterContext *ctx, TextMetrics *metrics);
-
-// Draws glyphs on the frame
-static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
-                       FFDrawColor *color, TextMetrics *metrics,
-                       int x, int y, int borderw);
-
-// Draws text on the frame
-static int draw_text(AVFilterContext *ctx, AVFrame *frame);
 
 static int glyph_cmp(const void *key, const void *b)
 {
@@ -783,6 +745,110 @@ static enum AVFrameSideDataType text_source_string_parse(const char *text_source
     }
 }
 
+static inline int get_subpixel_idx(int shift_x64, int shift_y64)
+{
+    int idx = (shift_x64 >> 2) + (shift_y64 >> 4);
+    return idx;
+}
+
+// Loads and (optionally) renders a glyph
+static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, int8_t shift_x64, int8_t shift_y64)
+{
+    DrawTextContext *s = ctx->priv;
+    Glyph dummy = { 0 };
+    Glyph *glyph;
+    FT_Vector shift;
+    struct AVTreeNode *node = NULL;
+    int ret = 0;
+
+    /* get glyph */
+    dummy.code = code;
+    dummy.fontsize = s->fontsize;
+    glyph = av_tree_find(s->glyphs, &dummy, glyph_cmp, NULL);
+    if (!glyph) {
+        if (FT_Load_Glyph(s->face, code, s->ft_load_flags)) {
+            return AVERROR(EINVAL);
+        }
+        glyph = av_mallocz(sizeof(*glyph));
+        if (!glyph) {
+            ret = AVERROR(ENOMEM);
+            goto error;
+        }
+        glyph->code  = code;
+        glyph->fontsize = s->fontsize;
+        if (FT_Get_Glyph(s->face->glyph, &glyph->glyph)) {
+            ret = AVERROR(EINVAL);
+            goto error;
+        }
+        if (s->borderw) {
+            glyph->border_glyph = glyph->glyph;
+            if (FT_Glyph_StrokeBorder(&glyph->border_glyph, s->stroker, 0, 0)) {
+                ret = AVERROR_EXTERNAL;
+                goto error;
+            }
+        }
+        /* measure text height to calculate text_height (or the maximum text height) */
+        FT_Glyph_Get_CBox(glyph->glyph, FT_GLYPH_BBOX_SUBPIXELS, &glyph->bbox);
+
+        /* cache the newly created glyph */
+        if (!(node = av_tree_node_alloc())) {
+            ret = AVERROR(ENOMEM);
+            goto error;
+        }
+        av_tree_insert(&s->glyphs, glyph, glyph_cmp, &node);
+    } else {
+        if (s->borderw && !glyph->border_glyph) {
+            glyph->border_glyph = glyph->glyph;
+            if (FT_Glyph_StrokeBorder(&glyph->border_glyph, s->stroker, 0, 0)) {
+                ret = AVERROR_EXTERNAL;
+                goto error;
+            }
+        }
+    }
+
+    // Check if a bitmap is needed
+    if (shift_x64 >= 0 && shift_y64 >= 0) {
+        // Get the bitmap subpixel index (0 -> 15)
+        int idx = get_subpixel_idx(shift_x64, shift_y64);
+        shift.x = shift_x64;
+        shift.y = shift_y64;
+
+        if (!glyph->bglyph[idx]) {
+            FT_Glyph tmp_glyph = glyph->glyph;
+            if (FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
+                ret = AVERROR_EXTERNAL;
+                goto error;
+            }
+            glyph->bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
+            if (glyph->bglyph[idx]->bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
+                av_log(ctx, AV_LOG_ERROR, "Monocromatic (1bpp) fonts are not supported.\n");
+                ret = AVERROR(EINVAL);
+                goto error;
+            }
+        }
+        if (s->borderw && !glyph->border_bglyph[idx]) {
+            FT_Glyph tmp_glyph = glyph->border_glyph;
+            if (FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
+                ret = AVERROR_EXTERNAL;
+                goto error;
+            }
+            glyph->border_bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
+        }
+    }
+    if (glyph_ptr) {
+        *glyph_ptr = glyph;
+    }
+    return 0;
+
+error:
+    if (glyph && glyph->glyph)
+        FT_Done_Glyph(glyph->glyph);
+
+    av_freep(&glyph);
+    av_freep(&node);
+    return ret;
+}
+
 // Convert a string formatted as "n1|n2|...|nN" into an integer array
 static int string_to_array(const char* source, int* result, int result_size)
 {
@@ -1088,6 +1154,7 @@ static int command(AVFilterContext *ctx, const char *cmd, const char *arg, char 
         } else if (strcmp(cmd, "fontsize") == 0) {
             av_expr_free(old->fontsize_pexpr);
             old->fontsize_pexpr = NULL;
+            old->blank_advance64 = 0;
         }
         return config_input(ctx->inputs[0]);
     }
@@ -1481,109 +1548,6 @@ static void update_alpha(DrawTextContext *s)
         s->alpha = 256 * alpha;
 }
 
-static inline int get_subpixel_idx(int shift_x64, int shift_y64)
-{
-    int idx = (shift_x64 >> 2) + (shift_y64 >> 4);
-    return idx;
-}
-
-static int load_glyph(AVFilterContext *ctx, Glyph **glyph_ptr, uint32_t code, int8_t shift_x64, int8_t shift_y64)
-{
-    DrawTextContext *s = ctx->priv;
-    Glyph dummy = { 0 };
-    Glyph *glyph;
-    FT_Vector shift;
-    struct AVTreeNode *node = NULL;
-    int ret = 0;
-
-    /* get glyph */
-    dummy.code = code;
-    dummy.fontsize = s->fontsize;
-    glyph = av_tree_find(s->glyphs, &dummy, glyph_cmp, NULL);
-    if (!glyph) {
-        if (FT_Load_Glyph(s->face, code, s->ft_load_flags)) {
-            return AVERROR(EINVAL);
-        }
-        glyph = av_mallocz(sizeof(*glyph));
-        if (!glyph) {
-            ret = AVERROR(ENOMEM);
-            goto error;
-        }
-        glyph->code  = code;
-        glyph->fontsize = s->fontsize;
-        if (FT_Get_Glyph(s->face->glyph, &glyph->glyph)) {
-            ret = AVERROR(EINVAL);
-            goto error;
-        }
-        if (s->borderw) {
-            glyph->border_glyph = glyph->glyph;
-            if (FT_Glyph_StrokeBorder(&glyph->border_glyph, s->stroker, 0, 0)) {
-                ret = AVERROR_EXTERNAL;
-                goto error;
-            }
-        }
-        /* measure text height to calculate text_height (or the maximum text height) */
-        FT_Glyph_Get_CBox(glyph->glyph, FT_GLYPH_BBOX_SUBPIXELS, &glyph->bbox);
-
-        /* cache the newly created glyph */
-        if (!(node = av_tree_node_alloc())) {
-            ret = AVERROR(ENOMEM);
-            goto error;
-        }
-        av_tree_insert(&s->glyphs, glyph, glyph_cmp, &node);
-    } else {
-        if (s->borderw && !glyph->border_glyph) {
-            glyph->border_glyph = glyph->glyph;
-            if (FT_Glyph_StrokeBorder(&glyph->border_glyph, s->stroker, 0, 0)) {
-                ret = AVERROR_EXTERNAL;
-                goto error;
-            }
-        }
-    }
-
-    // Check if a bitmap is needed
-    if (shift_x64 >= 0 && shift_y64 >= 0) {
-        // Get the bitmap subpixel index (0 -> 15)
-        int idx = get_subpixel_idx(shift_x64, shift_y64);
-        shift.x = shift_x64;
-        shift.y = shift_y64;
-
-        if (!glyph->bglyph[idx]) {
-            FT_Glyph tmp_glyph = glyph->glyph;
-            if (FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
-                ret = AVERROR_EXTERNAL;
-                goto error;
-            }
-            glyph->bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
-            if (glyph->bglyph[idx]->bitmap.pixel_mode == FT_PIXEL_MODE_MONO) {
-                av_log(ctx, AV_LOG_ERROR, "Monocromatic (1bpp) fonts are not supported.\n");
-                ret = AVERROR(EINVAL);
-                goto error;
-            }
-        }
-        if (s->borderw && !glyph->border_bglyph[idx]) {
-            FT_Glyph tmp_glyph = glyph->border_glyph;
-            if (FT_Glyph_To_Bitmap(&tmp_glyph, FT_RENDER_MODE_NORMAL, &shift, 0)) {
-                ret = AVERROR_EXTERNAL;
-                goto error;
-            }
-            glyph->border_bglyph[idx] = (FT_BitmapGlyph)tmp_glyph;
-        }
-    }
-    if (glyph_ptr) {
-        *glyph_ptr = glyph;
-    }
-    return 0;
-
-error:
-    if (glyph && glyph->glyph)
-        FT_Done_Glyph(glyph->glyph);
-
-    av_freep(&glyph);
-    av_freep(&node);
-    return ret;
-}
-
 static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
                        FFDrawColor *color,
                        TextMetrics *metrics,
@@ -1610,6 +1574,11 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
         offset_y = s->box_height - metrics->height;
     }
 
+    if ((j_right || j_center) && !s->tab_warning_printed && s->tab_count > 0) {
+        s->tab_warning_printed = 1;
+        av_log(s, AV_LOG_WARNING, "Tab characters are only supported with left horizontal alignment\n");
+    }
+    
     clip_x = FFMIN(metrics->rect_x + s->box_width + s->bb_right, frame->width);
     clip_y = FFMIN(metrics->rect_y + s->box_height + s->bb_bottom, frame->height);
 
@@ -1667,19 +1636,28 @@ static int draw_glyphs(DrawTextContext *s, AVFrame *frame,
     return 0;
 }
 
-static void shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text, int textLen) 
+// Shapes a line of text using libharfbuzz
+static int shape_text_hb(DrawTextContext *s, HarfbuzzData* hb, const char* text, int textLen) 
 {
     hb->buf = hb_buffer_create();
+    if(!hb_buffer_allocation_successful(hb->buf)) {
+        return AVERROR(ENOMEM);
+    }
     hb_buffer_set_direction(hb->buf, HB_DIRECTION_LTR);
     hb_buffer_set_script(hb->buf, HB_SCRIPT_LATIN);
     hb_buffer_set_language(hb->buf, hb_language_from_string("en", -1));
     hb_buffer_guess_segment_properties(hb->buf);
     hb->font = hb_ft_font_create(s->face, NULL);
+    if(hb->font == NULL) {
+        return AVERROR(ENOMEM);
+    }
     hb_ft_font_set_funcs(hb->font);
     hb_buffer_add_utf8(hb->buf, text, textLen, 0, -1);
     hb_shape(hb->font, hb->buf, NULL, 0);
     hb->glyph_info = hb_buffer_get_glyph_infos(hb->buf, &hb->glyph_count);
     hb->glyph_pos = hb_buffer_get_glyph_positions(hb->buf, &hb->glyph_count);
+    
+    return 0;
 }
 
 static void hb_destroy(HarfbuzzData *hb) 
@@ -1695,8 +1673,8 @@ static void hb_destroy(HarfbuzzData *hb)
 static int measure_text(AVFilterContext *ctx, TextMetrics *metrics)
 {
     DrawTextContext *s = ctx->priv;
-    char* text = s->expanded_text.str;
-    char *textdup = av_strdup(text), *start = textdup;
+    char *text = s->expanded_text.str;
+    char *textdup, *start;
     int num_chars = 0;
     int width64 = 0, w64 = 0;
     int cur_min_y64 = 0, first_max_y64 = -32000;
@@ -1728,7 +1706,10 @@ continue_on_failed:
     // Evaluate the width of the space character if needed to replace tabs
     if (s->tab_count > 0 && !s->blank_advance64) {
         HarfbuzzData hb_data;
-        shape_text_hb(s, &hb_data, " ", 1);
+        ret = shape_text_hb(s, &hb_data, " ", 1);
+        if(ret != 0) {
+            goto done;
+        }
         s->blank_advance64 = hb_data.glyph_pos[0].x_advance;
         hb_destroy(&hb_data);
     }
@@ -1740,6 +1721,11 @@ continue_on_failed:
         s->tab_clusters[i] = -1;
     }
 
+    start = textdup = av_strdup(text);
+    if (textdup == NULL) {
+        ret = AVERROR(ENOMEM);
+        goto done;
+    }
     line_count = 0;
     for (i = 0, p = textdup; 1; i++) {
         if (*p == '\t') {
@@ -1752,7 +1738,10 @@ continue_on_failed2:
             TextLine *cur_line = &s->lines[line_count];
             HarfbuzzData *hb = &cur_line->hb_data;
             cur_line->cluster_offset = line_offset;
-            shape_text_hb(s, hb, start, num_chars);
+            ret = shape_text_hb(s, hb, start, num_chars);
+            if (ret != 0) {
+                goto done;
+            }
             w64 = 0;
             cur_min_y64 = 32000;
             for (int t = 0; t < hb->glyph_count; ++t) {
@@ -1763,7 +1752,7 @@ continue_on_failed2:
                 }
                 ret = load_glyph(ctx, &glyph, hb->glyph_info[t].codepoint, -1, -1);
                 if (ret != 0) {
-                    break;
+                    goto done;
                 }
                 if (line_count == 0) {
                     first_max_y64 = FFMAX(glyph->bbox.yMax, first_max_y64);
@@ -1791,48 +1780,47 @@ continue_on_failed2:
                 max_x64 = FFMAX(glyph->bbox.xMax, max_x64);
             }
 
-            if (ret == 0) {
-                cur_line->width64 = w64;
+            cur_line->width64 = w64;
 
-                av_log(s, AV_LOG_DEBUG, "  Line: %d -- glyphs count: %d - width64: %d - offset_left64: %d - offset_right64: %d)\n",
-                    line_count, hb->glyph_count, cur_line->width64, cur_line->offset_left64, cur_line->offset_right64);
+            av_log(s, AV_LOG_DEBUG, "  Line: %d -- glyphs count: %d - width64: %d - offset_left64: %d - offset_right64: %d)\n",
+                line_count, hb->glyph_count, cur_line->width64, cur_line->offset_left64, cur_line->offset_right64);
 
-                if (w64 > width64) {
-                    width64 = w64;
-                }
-                num_chars = -1;
-                start = p;
-                ++line_count;
-                line_offset = i + 1;
+            if (w64 > width64) {
+                width64 = w64;
             }
+            num_chars = -1;
+            start = p;
+            ++line_count;
+            line_offset = i + 1;
         }
 
-        if (code == 0 || ret != 0) break;
+        if (code == 0) break;
         ++num_chars;
     }
 
-    if (ret == 0) {
-        metrics->line_height64 = s->face->size->metrics.height;
-        
-        metrics->width = POS_CEIL(width64, 64);
-        if (s->y_align == YA_FONT) {
-            metrics->height = POS_CEIL(metrics->line_height64 * line_count, 64);
-        } else {
-            int height64 = (metrics->line_height64 + s->line_spacing * 64) *
-                (FFMAX(0, line_count - 1)) + first_max_y64 - cur_min_y64;
-            metrics->height = POS_CEIL(height64, 64);
-        }
-        metrics->offset_top64 = first_max_y64;
-        metrics->offset_right64 = last_max_x64;
-        metrics->offset_bottom64 = cur_min_y64;
-        metrics->offset_left64 = first_min_x64;
-        metrics->min_x64 = min_x64;
-        metrics->min_y64 = min_y64;
-        metrics->max_x64 = max_x64;
-        metrics->max_y64 = max_y64;
+    metrics->line_height64 = s->face->size->metrics.height;
+    
+    metrics->width = POS_CEIL(width64, 64);
+    if (s->y_align == YA_FONT) {
+        metrics->height = POS_CEIL(metrics->line_height64 * line_count, 64);
+    } else {
+        int height64 = (metrics->line_height64 + s->line_spacing * 64) *
+            (FFMAX(0, line_count - 1)) + first_max_y64 - cur_min_y64;
+        metrics->height = POS_CEIL(height64, 64);
     }
+    metrics->offset_top64 = first_max_y64;
+    metrics->offset_right64 = last_max_x64;
+    metrics->offset_bottom64 = cur_min_y64;
+    metrics->offset_left64 = first_min_x64;
+    metrics->min_x64 = min_x64;
+    metrics->min_y64 = min_y64;
+    metrics->max_x64 = max_x64;
+    metrics->max_y64 = max_y64;
 
-    av_free(textdup);
+done:
+    if (textdup != NULL) {
+        av_free(textdup);
+    }
     return ret;
 }
 
@@ -1909,7 +1897,9 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
         return ret;
     }
 
-    measure_text(ctx, &metrics);
+    if ((ret = measure_text(ctx, &metrics)) < 0) {
+        return ret;
+    }
 
     s->max_glyph_h = POS_CEIL(metrics.max_y64 - metrics.min_y64, 64);
     s->max_glyph_w = POS_CEIL(metrics.max_x64 - metrics.min_x64, 64);
@@ -1925,7 +1915,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame)
     s->var_values[VAR_FONT_D] = -s->face->size->metrics.descender / 64;
 
     s->var_values[VAR_TOP_A] = POS_CEIL(metrics.offset_top64, 64);
-    s->var_values[VAR_BOTTOM_D] = POS_CEIL(metrics.offset_bottom64, 64);
+    s->var_values[VAR_BOTTOM_D] = -POS_CEIL(metrics.offset_bottom64, 64);
     s->var_values[VAR_LINE_H] = s->var_values[VAR_LH] = metrics.line_height64 / 64.;
 
     if (s->text_source == AV_FRAME_DATA_DETECTION_BBOXES) {

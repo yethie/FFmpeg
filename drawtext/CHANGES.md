@@ -42,7 +42,7 @@ The height of a line is now equal to the one defined in the font metrics. It was
 
 ## Examples
 ### Text shaping
-The following images show the difference between unshaped text and shaped text using two different fonts. In the process of shaping the distance between the letters "V" and "A" is changed and some characters are merged into a single glyph ("ff" in the previous example, "fi" in the second example). For each font the first image was rendered using the current filter implementation, the second one was rendered using the modified filter.
+The following images show the difference between unshaped text and shaped text using two different fonts. In the process of shaping the distance between the letters "V" and "A" is changed and some characters are merged into a single glyph ("ff" in the first example, "fi" in the second example). For each font the first image was rendered using the current filter implementation, the second one was rendered using the modified filter.
 
 font: *DejaVu Serif*
 

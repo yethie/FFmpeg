@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Sergey Lavrushkin
+ * Copyright (c) 2023 SiFive, Inc. All rights reserved.
  *
  * This file is part of FFmpeg.
  *
@@ -18,23 +18,24 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/**
- * @file
- * DNN inference functions interface for TensorFlow backend.
- */
+#include <stdint.h>
 
+#include "libavutil/attributes.h"
+#include "libavutil/riscv/cpu.h"
+#include "libavcodec/h264chroma.h"
+#include "config.h"
 
-#ifndef AVFILTER_DNN_DNN_BACKEND_TF_H
-#define AVFILTER_DNN_DNN_BACKEND_TF_H
+void h264_put_chroma_mc8_rvv(uint8_t *p_dst, const uint8_t *p_src, ptrdiff_t stride, int h, int x, int y);
+void h264_avg_chroma_mc8_rvv(uint8_t *p_dst, const uint8_t *p_src, ptrdiff_t stride, int h, int x, int y);
 
-#include "../dnn_interface.h"
+av_cold void ff_h264chroma_init_riscv(H264ChromaContext *c, int bit_depth)
+{
+#if HAVE_RVV
+    int flags = av_get_cpu_flags();
 
-DNNModel *ff_dnn_load_model_tf(const char *model_filename, DNNFunctionType func_type, const char *options, AVFilterContext *filter_ctx);
-
-int ff_dnn_execute_model_tf(const DNNModel *model, DNNExecBaseParams *exec_params);
-DNNAsyncStatusType ff_dnn_get_result_tf(const DNNModel *model, AVFrame **in, AVFrame **out);
-int ff_dnn_flush_tf(const DNNModel *model);
-
-void ff_dnn_free_model_tf(DNNModel **model);
-
+    if (bit_depth == 8 && (flags & AV_CPU_FLAG_RVV_I32) && ff_get_rv_vlenb() >= 16) {
+        c->put_h264_chroma_pixels_tab[0] = h264_put_chroma_mc8_rvv;
+        c->avg_h264_chroma_pixels_tab[0] = h264_avg_chroma_mc8_rvv;
+    }
 #endif
+}

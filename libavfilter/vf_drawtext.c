@@ -950,14 +950,6 @@ static av_cold int init(AVFilterContext *ctx)
         return AVERROR(EINVAL);
     }
 
-    if ((err = validate_text_align(s->text_align))) {
-        av_log(ctx, AV_LOG_ERROR,
-               "The value provided for parameter 'text_align' is not valid,\n");
-        av_log(ctx, AV_LOG_ERROR,
-               "please specify a two characters string containing only one letter for horizontal alignment ('LCR') and one for vertical alignment ('TMB')\n");
-        return err;
-    }
-
 #if CONFIG_LIBFRIBIDI
     if (s->text_shaping)
         if ((err = shape_text(ctx)) < 0)

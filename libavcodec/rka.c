@@ -745,7 +745,7 @@ static int decode_filter(RKAContext *s, ChContext *ctx, ACoder *ac, int off, uns
                 }
                 ctx->buf1[off] = sum - ctx->buf0[off + -1];
                 ctx->buf0[off] = sum;
-                m += FFABS(ctx->buf1[off]);
+                m += (unsigned)FFABS(ctx->buf1[off]);
             }
         }
         if (ctx->cmode2 != 0) {
@@ -948,6 +948,10 @@ static int rka_decode_frame(AVCodecContext *avctx, AVFrame *frame,
             n += ret;
         }
     }
+
+    if (frame->nb_samples < s->frame_samples &&
+        frame->nb_samples > s->last_nb_samples)
+        frame->nb_samples = s->last_nb_samples;
 
     *got_frame_ptr = 1;
 

@@ -42,6 +42,7 @@
 #include "huffyuvdsp.h"
 #include "lossless_videodsp.h"
 #include "thread.h"
+#include "libavutil/emms.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/pixdesc.h"
 
@@ -168,8 +169,9 @@ static int generate_joint_tables(HYuvDecContext *s)
     len = (uint8_t *)(bits + (1 << VLC_BITS));
 
     if (s->bitstream_bpp < 24 || s->version > 2) {
+        int count = 1 + s->alpha + 2 * s->chroma;
         int p, i, y, u;
-        for (p = 0; p < 4; p++) {
+        for (p = 0; p < count; p++) {
             int p0 = s->version > 2 ? p : 0;
             for (i = y = 0; y < s->vlc_n; y++) {
                 int len0  = s->len[p0][y];

@@ -1225,6 +1225,7 @@ static int mov_write_pcmc_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
 {
     int64_t pos = avio_tell(pb);
     int format_flags;
+    int sample_size;
 
     avio_wb32(pb, 0); /* size */
     ffio_wfourcc(pb, "pcmC");
@@ -1237,7 +1238,11 @@ static int mov_write_pcmc_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
                     track->par->codec_id == AV_CODEC_ID_PCM_S24LE ||
                     track->par->codec_id == AV_CODEC_ID_PCM_S32LE);
     avio_w8(pb, format_flags);
-    avio_w8(pb, track->par->bits_per_raw_sample);
+    sample_size = track->par->bits_per_raw_sample;
+    if (!sample_size)
+        sample_size = av_get_exact_bits_per_sample(track->par->codec_id);
+    av_assert0(sample_size);
+    avio_w8(pb, sample_size);
 
     return update_size(pb, pos);
 }
@@ -1436,10 +1441,7 @@ static int mov_write_vpcc_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
 
     avio_wb32(pb, 0);
     ffio_wfourcc(pb, "vpcC");
-    avio_w8(pb, 1); /* version */
-    avio_wb24(pb, 0); /* flags */
     ff_isom_write_vpcc(s, pb, track->vos_data, track->vos_len, track->par);
-
     return update_size(pb, pos);
 }
 
@@ -1755,8 +1757,8 @@ static const struct {
 static int mov_get_dnxhd_codec_tag(AVFormatContext *s, MOVTrack *track)
 {
   int tag = MKTAG('A','V','d','n');
-  if (track->par->profile != FF_PROFILE_UNKNOWN &&
-      track->par->profile != FF_PROFILE_DNXHD)
+  if (track->par->profile != AV_PROFILE_UNKNOWN &&
+      track->par->profile != AV_PROFILE_DNXHD)
       tag = MKTAG('A','V','d','h');
   return tag;
 }
@@ -4764,10 +4766,10 @@ static int mov_write_isml_manifest(AVIOContext *pb, MOVMuxContext *mov, AVFormat
             if (track->par->codec_id == AV_CODEC_ID_AAC) {
                 switch (track->par->profile)
                 {
-                    case FF_PROFILE_AAC_HE_V2:
+                    case AV_PROFILE_AAC_HE_V2:
                         param_write_string(pb, "FourCC", "AACP");
                         break;
-                    case FF_PROFILE_AAC_HE:
+                    case AV_PROFILE_AAC_HE:
                         param_write_string(pb, "FourCC", "AACH");
                         break;
                     default:

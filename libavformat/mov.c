@@ -1911,7 +1911,7 @@ static int mov_read_alac(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
 static int mov_read_avss(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
-    return mov_read_extradata(c, pb, atom, AV_CODEC_ID_AVS);
+    return mov_read_extradata(c, pb, atom, AV_CODEC_ID_CAVS);
 }
 
 static int mov_read_jp2h(MOVContext *c, AVIOContext *pb, MOVAtom atom)
@@ -2263,6 +2263,11 @@ static int mov_codec_id(AVStream *st, uint32_t format)
                     (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE &&
                     st->codecpar->codec_id == AV_CODEC_ID_NONE)) {
             id = ff_codec_get_id(ff_codec_movsubtitle_tags, format);
+            if (id <= 0) {
+                id = (format == MOV_MP4_TTML_TAG || format == MOV_ISMV_TTML_TAG) ?
+                     AV_CODEC_ID_TTML : id;
+            }
+
             if (id > 0)
                 st->codecpar->codec_type = AVMEDIA_TYPE_SUBTITLE;
             else
@@ -2457,8 +2462,10 @@ static void mov_parse_stsd_subtitle(MOVContext *c, AVIOContext *pb,
     // ttxt stsd contains display flags, justification, background
     // color, fonts, and default styles, so fake an atom to read it
     MOVAtom fake_atom = { .size = size };
-    // mp4s contains a regular esds atom
-    if (st->codecpar->codec_tag != AV_RL32("mp4s"))
+    // mp4s contains a regular esds atom, dfxp ISMV TTML has no content
+    // in extradata unlike stpp MP4 TTML.
+    if (st->codecpar->codec_tag != AV_RL32("mp4s") &&
+        st->codecpar->codec_tag != MOV_ISMV_TTML_TAG)
         mov_read_glbl(c, pb, fake_atom);
     st->codecpar->width  = sc->width;
     st->codecpar->height = sc->height;
@@ -5720,7 +5727,7 @@ static int mov_read_cmov(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     ret = AVERROR_INVALIDDATA;
     if (uncompress (moov_data, (uLongf *) &moov_len, (const Bytef *)cmov_data, cmov_len) != Z_OK)
         goto free_and_return;
-    ffio_init_context(&ctx, moov_data, moov_len, 0, NULL, NULL, NULL, NULL);
+    ffio_init_read_context(&ctx, moov_data, moov_len);
     ctx.pub.seekable = AVIO_SEEKABLE_NORMAL;
     atom.type = MKTAG('m','o','o','v');
     atom.size = moov_len;

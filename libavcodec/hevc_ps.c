@@ -250,15 +250,15 @@ static int decode_profile_tier_level(GetBitContext *gb, AVCodecContext *avctx,
     ptl->profile_space = get_bits(gb, 2);
     ptl->tier_flag     = get_bits1(gb);
     ptl->profile_idc   = get_bits(gb, 5);
-    if (ptl->profile_idc == FF_PROFILE_HEVC_MAIN)
+    if (ptl->profile_idc == AV_PROFILE_HEVC_MAIN)
         av_log(avctx, AV_LOG_DEBUG, "Main profile bitstream\n");
-    else if (ptl->profile_idc == FF_PROFILE_HEVC_MAIN_10)
+    else if (ptl->profile_idc == AV_PROFILE_HEVC_MAIN_10)
         av_log(avctx, AV_LOG_DEBUG, "Main 10 profile bitstream\n");
-    else if (ptl->profile_idc == FF_PROFILE_HEVC_MAIN_STILL_PICTURE)
+    else if (ptl->profile_idc == AV_PROFILE_HEVC_MAIN_STILL_PICTURE)
         av_log(avctx, AV_LOG_DEBUG, "Main Still Picture profile bitstream\n");
-    else if (ptl->profile_idc == FF_PROFILE_HEVC_REXT)
+    else if (ptl->profile_idc == AV_PROFILE_HEVC_REXT)
         av_log(avctx, AV_LOG_DEBUG, "Range Extension profile bitstream\n");
-    else if (ptl->profile_idc == FF_PROFILE_HEVC_SCC)
+    else if (ptl->profile_idc == AV_PROFILE_HEVC_SCC)
         av_log(avctx, AV_LOG_DEBUG, "Screen Content Coding Extension profile bitstream\n");
     else
         av_log(avctx, AV_LOG_WARNING, "Unknown HEVC profile: %d\n", ptl->profile_idc);
@@ -1581,11 +1581,13 @@ static int pps_scc_extension(GetBitContext *gb, AVCodecContext *avctx,
             }
             pps->monochrome_palette_flag = get_bits1(gb);
             pps->luma_bit_depth_entry = get_ue_golomb_31(gb) + 8;
-            if (!pps->monochrome_palette_flag)
-                pps->chroma_bit_depth_entry = get_ue_golomb_31(gb) + 8;
-
-            if (pps->chroma_bit_depth_entry > 16 || pps->chroma_bit_depth_entry > 16)
+            if (pps->luma_bit_depth_entry != sps->bit_depth)
                 return AVERROR_INVALIDDATA;
+            if (!pps->monochrome_palette_flag) {
+                pps->chroma_bit_depth_entry = get_ue_golomb_31(gb) + 8;
+                if (pps->chroma_bit_depth_entry != sps->bit_depth_chroma)
+                    return AVERROR_INVALIDDATA;
+            }
 
             num_comps = pps->monochrome_palette_flag ? 1 : 3;
             for (int comp = 0; comp < num_comps; comp++) {
@@ -1966,7 +1968,7 @@ int ff_hevc_decode_nal_pps(GetBitContext *gb, AVCodecContext *avctx,
         pps->pps_scc_extension_flag        = get_bits1(gb);
         skip_bits(gb, 4); // pps_extension_4bits
 
-        if (sps->ptl.general_ptl.profile_idc >= FF_PROFILE_HEVC_REXT && pps->pps_range_extensions_flag) {
+        if (sps->ptl.general_ptl.profile_idc >= AV_PROFILE_HEVC_REXT && pps->pps_range_extensions_flag) {
             if ((ret = pps_range_extensions(gb, avctx, pps, sps)) < 0)
                 goto err;
         }

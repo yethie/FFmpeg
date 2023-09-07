@@ -23,11 +23,9 @@
 
 #include <stdint.h>
 
-#include "libavcodec/codec_desc.h"
 #include "libavcodec/packet_internal.h"
 
 #include "avformat.h"
-#include "os_support.h"
 
 #define MAX_URL_SIZE 4096
 
@@ -410,7 +408,7 @@ typedef struct FFStream {
     int64_t first_dts;
     int64_t cur_dts;
 
-    const AVCodecDescriptor *codec_desc;
+    const struct AVCodecDescriptor *codec_desc;
 } FFStream;
 
 static av_always_inline FFStream *ffstream(AVStream *st)
@@ -568,8 +566,8 @@ void ff_parse_key_value(const char *str, ff_parse_key_val_cb callback_get_buf,
 
 enum AVCodecID ff_guess_image2_codec(const char *filename);
 
-const AVCodec *ff_find_decoder(AVFormatContext *s, const AVStream *st,
-                               enum AVCodecID codec_id);
+const struct AVCodec *ff_find_decoder(AVFormatContext *s, const AVStream *st,
+                                      enum AVCodecID codec_id);
 
 /**
  * Set the time base and wrapping info for a given stream. This will be used

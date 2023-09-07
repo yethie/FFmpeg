@@ -264,8 +264,6 @@ static int cbs_h265_payload_extension_present(GetBitContext *gbc, uint32_t paylo
 
 #define u(width, name, range_min, range_max) \
         xu(width, name, current->name, range_min, range_max, 0, )
-#define ub(width, name) \
-        xu(width, name, current->name, 0, MAX_UINT_BITS(width), 0, )
 #define flag(name) ub(1, name)
 #define ue(name, range_min, range_max) \
         xue(name, current->name, range_min, range_max, 0, )
@@ -301,6 +299,12 @@ static int cbs_h265_payload_extension_present(GetBitContext *gbc, uint32_t paylo
 #define READWRITE read
 #define RWContext GetBitContext
 
+#define ub(width, name) do { \
+        uint32_t value; \
+        CHECK(ff_cbs_read_simple_unsigned(ctx, rw, width, #name, \
+                                          &value)); \
+        current->name = value; \
+    } while (0)
 #define xu(width, name, var, range_min, range_max, subs, ...) do { \
         uint32_t value; \
         CHECK(ff_cbs_read_unsigned(ctx, rw, width, #name, \
@@ -379,6 +383,7 @@ static int cbs_h2645_read_more_rbsp_data(GetBitContext *gbc)
 #undef READ
 #undef READWRITE
 #undef RWContext
+#undef ub
 #undef xu
 #undef xi
 #undef xue
@@ -394,6 +399,11 @@ static int cbs_h2645_read_more_rbsp_data(GetBitContext *gbc)
 #define READWRITE write
 #define RWContext PutBitContext
 
+#define ub(width, name) do { \
+        uint32_t value = current->name; \
+        CHECK(ff_cbs_write_simple_unsigned(ctx, rw, width, #name, \
+                                           value)); \
+    } while (0)
 #define xu(width, name, var, range_min, range_max, subs, ...) do { \
         uint32_t value = var; \
         CHECK(ff_cbs_write_unsigned(ctx, rw, width, #name, \
@@ -461,6 +471,7 @@ static int cbs_h2645_read_more_rbsp_data(GetBitContext *gbc)
 #undef WRITE
 #undef READWRITE
 #undef RWContext
+#undef ub
 #undef xu
 #undef xi
 #undef xue
@@ -695,7 +706,7 @@ static int cbs_h2645_split_fragment(CodedBitstreamContext *ctx,
             int nal_unit_type = bytestream2_get_byte(&gbc) & 0x1f;
             unsigned int num_nalus = 1;
             if(nal_unit_type != VVC_DCI_NUT && nal_unit_type != VVC_OPI_NUT)
-                num_nalus = bytestream2_get_be16u(&gbc);
+                num_nalus = bytestream2_get_be16(&gbc);
 
             start = bytestream2_tell(&gbc);
             for(i = 0; i < num_nalus; i++) {
@@ -1059,6 +1070,22 @@ static int cbs_h266_read_nal_unit(CodedBitstreamContext *ctx,
         return err;
 
     switch (unit->type) {
+    case VVC_DCI_NUT:
+        {
+            err = cbs_h266_read_dci(ctx, &gbc, unit->content);
+
+            if (err < 0)
+                return err;
+        }
+        break;
+    case VVC_OPI_NUT:
+        {
+            err = cbs_h266_read_opi(ctx, &gbc, unit->content);
+
+            if (err < 0)
+                return err;
+        }
+        break;
     case VVC_VPS_NUT:
         {
             H266RawVPS *vps = unit->content;
@@ -1100,6 +1127,16 @@ static int cbs_h266_read_nal_unit(CodedBitstreamContext *ctx,
         }
         break;
 
+    case VVC_PREFIX_APS_NUT:
+    case VVC_SUFFIX_APS_NUT:
+        {
+            err = cbs_h266_read_aps(ctx, &gbc, unit->content,
+                                    unit->type == VVC_PREFIX_APS_NUT);
+
+            if (err < 0)
+                return err;
+        }
+        break;
     case VVC_PH_NUT:
         {
             H266RawPH *ph = unit->content;
@@ -1593,6 +1630,24 @@ static int cbs_h266_write_nal_unit(CodedBitstreamContext *ctx,
     int err;
 
     switch (unit->type) {
+    case VVC_DCI_NUT:
+        {
+            H266RawDCI *dci = unit->content;
+
+            err = cbs_h266_write_dci(ctx, pbc, dci);
+            if (err < 0)
+                return err;
+        }
+        break;
+    case VVC_OPI_NUT:
+        {
+            H266RawOPI *opi = unit->content;
+
+            err = cbs_h266_write_opi(ctx, pbc, opi);
+            if (err < 0)
+                return err;
+        }
+        break;
     case VVC_VPS_NUT:
         {
             H266RawVPS *vps = unit->content;
@@ -1634,6 +1689,15 @@ static int cbs_h266_write_nal_unit(CodedBitstreamContext *ctx,
         }
         break;
 
+    case VVC_PREFIX_APS_NUT:
+    case VVC_SUFFIX_APS_NUT:
+        {
+            err = cbs_h266_write_aps(ctx, pbc, unit->content,
+                                     unit->type == VVC_PREFIX_APS_NUT);
+            if (err < 0)
+                return err;
+        }
+        break;
     case VVC_PH_NUT:
         {
             H266RawPH *ph = unit->content;
@@ -1965,9 +2029,13 @@ static void cbs_h266_free_sei(void *opaque, uint8_t *content)
 }
 
 static const CodedBitstreamUnitTypeDescriptor cbs_h266_unit_types[] = {
+    CBS_UNIT_TYPE_INTERNAL_REF(VVC_DCI_NUT, H266RawDCI, extension_data.data),
+    CBS_UNIT_TYPE_INTERNAL_REF(VVC_OPI_NUT, H266RawOPI, extension_data.data),
     CBS_UNIT_TYPE_INTERNAL_REF(VVC_VPS_NUT, H266RawVPS, extension_data.data),
     CBS_UNIT_TYPE_INTERNAL_REF(VVC_SPS_NUT, H266RawSPS, extension_data.data),
     CBS_UNIT_TYPE_INTERNAL_REF(VVC_PPS_NUT, H266RawPPS, extension_data.data),
+    CBS_UNIT_TYPE_INTERNAL_REF(VVC_PREFIX_APS_NUT, H266RawAPS, extension_data.data),
+    CBS_UNIT_TYPE_INTERNAL_REF(VVC_SUFFIX_APS_NUT, H266RawAPS, extension_data.data),
 
     CBS_UNIT_TYPE_POD(VVC_PH_NUT , H266RawPH),
     CBS_UNIT_TYPE_POD(VVC_AUD_NUT, H266RawAUD),

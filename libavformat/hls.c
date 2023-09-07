@@ -1265,7 +1265,7 @@ static void intercept_id3(struct playlist *pls, uint8_t *buf,
     if (pls->id3_buf) {
         /* Now parse all the ID3 tags */
         FFIOContext id3ioctx;
-        ffio_init_context(&id3ioctx, pls->id3_buf, id3_buf_pos, 0, NULL, NULL, NULL, NULL);
+        ffio_init_read_context(&id3ioctx, pls->id3_buf, id3_buf_pos);
         handle_id3(&id3ioctx.pub, pls);
     }
 
@@ -2505,6 +2505,9 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
         pb->pos = 0;
         /* Flush the packet queue of the subdemuxer. */
         ff_read_frame_flush(pls->ctx);
+
+        /* Reset the init segment so it's re-fetched and served appropiately */
+        pls->cur_init_section = NULL;
 
         pls->seek_timestamp = seek_timestamp;
         pls->seek_flags = flags;
